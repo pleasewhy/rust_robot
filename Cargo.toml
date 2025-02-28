@@ -1,0 +1,12 @@
+[package]
+name = "mujoco"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+glfw = "0.59.0"
+image = "0.25.5"
+ndarray = "0.16.1"
+ndarray-rand = "0.15.0"
+video-rs = { version = "0.10", features = ["ndarray"] }
+

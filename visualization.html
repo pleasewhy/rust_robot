@@ -1,0 +1,163 @@
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>数据可视化平台</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+        }
+        #sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 120px;
+            height: 100%;
+            background: #f0f0f0;
+            padding: 20px 10px;
+        }
+        .nav-btn {
+            display: block;
+            width: 100%;
+            margin: 10px 0;
+            padding: 10px;
+            background: #409eff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #content {
+            margin-left: 140px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+        .item {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 10px;
+            min-height: 400px;
+            display: flex;
+            flex-direction: column;
+        }
+        .item-title {
+            font-size: 16px;
+            margin-bottom: 10px;
+            color: #333;
+            flex-shrink: 0;
+        }
+        .chart {
+            width: 100%;
+            height: 100%;
+            flex-grow: 1;
+            min-height: 0; /* 允许内容收缩 */
+        }
+        img {
+            max-width: 100%;
+            max-height: 100%;
+            padding: 70px 0;
+        }
+        video {
+            max-width: 100%;
+            max-height: 100%;
+            padding: 70px 0;
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <button class="nav-btn" onclick="loadContent('curve')">曲线</button>
+        <button class="nav-btn" onclick="loadContent('img')">图片</button>
+        <button class="nav-btn" onclick="loadContent('video')">视频</button>
+    </div>
+    <div id="content"></div>
+
+    <script>
+        async function loadContent(type) {
+            // 获取目录列表（兼容标准HTML目录列表）
+            const response = await fetch(`data/${type}/`);
+            const html = await response.text();
+            
+            // 解析目录列表中的文件名
+            const domParser = new DOMParser();
+            const doc = domParser.parseFromString(html, 'text/html');
+            const files = Array.from(doc.querySelectorAll('a'))
+                .map(a => a.href.split('/').pop()) // 提取文件名
+                .filter(name => !name.includes('://')) // 过滤父目录链接
+                .map(name => decodeURIComponent(name));
+            const contentDiv = document.getElementById('content');
+            contentDiv.innerHTML = '';
+            
+            files.forEach(file => {
+                const item = document.createElement('div');
+                item.className = 'item';
+                
+                const title = document.createElement('div');
+                title.className = 'item-title';
+                title.textContent = decodeURIComponent(file);
+                item.appendChild(title);
+                
+                if(type === 'curve') {
+                    const chartDiv = document.createElement('div');
+                    chartDiv.className = 'chart';
+                    item.appendChild(chartDiv);
+                    loadChart(chartDiv, `data/${type}/${file}`);
+                } 
+                else if(type === 'img') {
+                    const img = document.createElement('img');
+                    img.src = `data/${type}/${file}`;
+                    item.appendChild(img);
+                }
+                else if(type === 'video') {
+                    const video = document.createElement('video');
+                    video.controls = true;
+                    video.src = `data/${type}/${file}`;
+                    item.appendChild(video);
+                }
+                
+                contentDiv.appendChild(item);
+            });
+        }
+
+        async function loadChart(container, url) {
+            const response = await fetch(url);
+            const data = await response.json();
+            console.log(data)
+            const chart = echarts.init(container);
+            // 添加窗口resize监听并立即调整尺寸
+            window.addEventListener('resize', () => chart.resize());
+            chart.resize(); // 初始化后立即调整尺寸
+            chart.setOption({
+                xAxis: {
+                    type: 'category',
+                    name: 'X轴',
+                    data: data.map(item => item.x)
+                },
+                yAxis: {
+                    type: 'value',
+                    name: 'Y轴'
+                },
+                tooltip: {
+                    trigger: 'axis'
+                },
+                series: [{
+                    type: 'line',
+                    data: data.map(item => item.y),
+                    smooth: true,
+                    symbol: 'circle',
+                    symbolSize: 8,
+                    itemStyle: {
+                        color: '#409eff'
+                    }
+                }]
+            });
+        }
+        
+        // 默认加载曲线数据
+        loadContent('curve');
+    </script>
+</body>
+</html>
