@@ -1,5 +1,6 @@
 use std::{
     any::Any,
+    collections::HashMap,
     ffi::CString,
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -7,9 +8,42 @@ use std::{
 
 use super::ffi::{self, mjData_, mjs_findBody};
 
+struct MyModel(*mut ffi::mjModel);
+struct MySpec(*mut ffi::mjSpec);
+unsafe impl Send for MyModel {}
+unsafe impl Send for MySpec {}
+impl Deref for MyModel {
+    type Target = ffi::mjModel;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.0 }
+    }
+}
+
+impl DerefMut for MyModel {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *self.0 }
+    }
+}
+
+impl Deref for MySpec {
+    type Target = ffi::mjSpec;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.0 }
+    }
+}
+
+impl DerefMut for MySpec {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *self.0 }
+    }
+}
+
 pub struct Model {
-    pub mj_model: *mut ffi::mjModel,
-    pub mj_spec: *mut ffi::mjSpec,
+    pub mj_model: MyModel,
+    pub mj_spec: MySpec,
+    // pub body_name_map: HashMap<String, usize>,
 }
 
 impl Model {
@@ -38,14 +72,15 @@ impl Model {
                 let s = Self::vec_i8_to_string(error);
                 return Result::Err(s.unwrap());
             }
+
             return Result::Ok(Arc::from(Model {
-                mj_model: mj_model,
-                mj_spec: mj_spec,
+                mj_model: MyModel(mj_model),
+                mj_spec: MySpec(mj_spec),
             }));
         }
     }
     pub fn get_ref(&self) -> &ffi::mjModel {
-        unsafe { &mut *self.mj_model }
+        unsafe { &*self.mj_model }
     }
     pub fn get_mut(&mut self) -> &mut ffi::mjModel {
         unsafe { &mut *self.mj_model }
@@ -53,11 +88,33 @@ impl Model {
     pub fn get_body_id(&self, name: &str) -> usize {
         unsafe {
             return ffi::mj_name2id(
-                self.mj_model,
+                self.mj_model.0,
                 ffi::mjtObj__mjOBJ_BODY as i32,
                 CString::new(name).unwrap().as_ptr(),
             ) as usize;
         };
+    }
+    pub fn get_body_name(&self) {
+        let mut body_cnt = 0;
+        let mut ptr = self.names as usize as *mut i8;
+        let mut name_vec = vec![];
+        while body_cnt < self.nnames {
+            let body_name = unsafe { std::ffi::CString::from_raw(ptr) };
+            println!("{}/{} name={:?}", body_cnt, self.nnames, body_name);
+            name_vec.push(body_name.clone());
+            ptr = ptr.wrapping_add(body_name.count_bytes() + 1);
+            body_name.into_raw();
+            body_cnt += 1;
+        }
+
+        let name_idx_slice =
+            unsafe { std::slice::from_raw_parts(self.name_jntadr, self.njnt as usize) };
+        for i in 0..self.njnt as usize {
+            println!(
+                "idx={} body_name={:?}",
+                name_idx_slice[i], name_vec[name_idx_slice[i] as usize]
+            );
+        }
     }
 }
 
@@ -77,27 +134,11 @@ impl DerefMut for Model {
     }
 }
 
-// impl Deref for Arc<Model> {
-//     type Target = ffi::mjModel;
-
-//     fn deref(&self) -> &Self::Target {
-//         unsafe { &*self.mj_model }
-//     }
-// }
-
-// impl DerefMut for Model {
-//     // type Target = ffi::mjModel;
-
-//     fn deref_mut(&mut self) -> &mut Self::Target {
-//         unsafe { &mut *self.mj_model }
-//     }
-// }
-
 // 实现 Drop 以自动释放内存
 impl Drop for Model {
     fn drop(&mut self) {
         unsafe {
-            ffi::mj_deleteModel(self.mj_model);
+            ffi::mj_deleteModel(self.mj_model.0);
         }
     }
 }
