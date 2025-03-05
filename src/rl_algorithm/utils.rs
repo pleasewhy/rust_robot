@@ -1,12 +1,12 @@
 use burn::{
-    nn::{Linear, LinearConfig, Relu},
+    nn::{Linear, LinearConfig, Tanh},
     prelude::*,
 };
 
 #[derive(Module, Debug)]
 pub struct MlpLayer<B: Backend> {
     linear: Linear<B>,
-    active_func: Relu,
+    active_func: Tanh,
 }
 
 impl<B: Backend> MlpLayer<B> {
@@ -26,7 +26,7 @@ impl MlpLayerConfig {
     pub fn init<B: Backend>(&self, device: &B::Device) -> MlpLayer<B> {
         return MlpLayer {
             linear: LinearConfig::new(self.d_input, self.d_output).init(device),
-            active_func: Relu::new(),
+            active_func: Tanh::new(),
         };
     }
 }
@@ -34,6 +34,7 @@ impl MlpLayerConfig {
 #[derive(Module, Debug)]
 pub struct Mlp<B: Backend> {
     layers: Vec<MlpLayer<B>>,
+    out_linear: Linear<B>,
 }
 
 impl<B: Backend> Mlp<B> {
@@ -42,7 +43,7 @@ impl<B: Backend> Mlp<B> {
         for i in 1..self.layers.len() {
             out = self.layers[i].forward(out);
         }
-        return out;
+        return self.out_linear.forward(out);
     }
 }
 
@@ -61,12 +62,14 @@ impl MlpConfig {
     pub fn init<B: Backend>(&self, device: &B::Device) -> Mlp<B> {
         let mut layers = Vec::<MlpLayer<B>>::new();
         let mut d_input = self.d_input;
-        for i in 0..self.n_hidden_layers - 1 {
+        for i in 0..self.n_hidden_layers {
             let linear = MlpLayerConfig::new(d_input, self.hidden_layer_dim).init(device);
             layers.push(linear);
             d_input = self.hidden_layer_dim;
         }
-        layers.push(MlpLayerConfig::new(d_input, self.d_output).init(device));
-        return Mlp { layers };
+        return Mlp {
+            layers,
+            out_linear: LinearConfig::new(d_input, self.d_output).init(device),
+        };
     }
 }

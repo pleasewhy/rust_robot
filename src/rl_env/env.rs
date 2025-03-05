@@ -11,7 +11,6 @@ use video_rs::{Encoder, Time};
 pub struct Env {
     pub model: Arc<mujoco::model::Model>,
     pub data: mujoco::data::Data,
-    pub data_vec: Vec<Arc<Mutex<mujoco::data::Data>>>, // 用于并行模拟
     pub render: Option<mujoco::render::Render>,
     pub torso_height: f64,
     pub is_render: bool,
@@ -30,7 +29,9 @@ pub struct Trajectory {
     // pub episode_statistics: nd::Array2<f64>,
 }
 
+#[derive(Default, Debug)]
 pub struct StepInfo {
+    pub obs: nd::Array1<f64>,
     pub next_obs: nd::Array1<f64>,
     pub reward: f64,
     pub terminated: bool,
@@ -39,27 +40,25 @@ pub struct StepInfo {
 
 impl Env {
     pub fn get_data() {}
-    pub fn new(xml_path: &str, is_render: bool) -> Self {
-        let model = mujoco::Model::from_xml_file(xml_path).unwrap();
+    pub fn from_model(model: Arc<mujoco::model::Model>, is_render: bool) -> Self {
         let data = mujoco::Data::new(model.clone());
         let mut render = Option::None;
         if is_render {
             render = Some(mujoco::render::Render::new(model.get_ref()));
         }
-        let mut data_vec = Vec::with_capacity(6);
-        for i in 0..6 {
-            data_vec.push(mujoco::Data::new_arc(model.clone()));
-        }
-        let torso_height = data.get_qpos()[(2, 0)];
+        let torso_height = 0 as f64;
         return Self {
             model,
             data,
-            data_vec,
             render,
-            torso_height: torso_height,
+            torso_height,
             is_render: is_render,
             fps: 30,
         };
+    }
+    pub fn new(xml_path: &str, is_render: bool) -> Self {
+        let model = mujoco::Model::from_xml_file(xml_path).unwrap();
+        return Self::from_model(model, is_render);
     }
     pub fn get_obs(&self) -> nd::Array1<f64> {
         let data = &self.data;
@@ -73,37 +72,59 @@ impl Env {
             ndarray::Axis(0),
             position.flatten(),
             velocity.flatten(),
-            com_inertia.flatten(),
-            com_velocity.flatten(),
-            actuator_forces.flatten(),
-            external_contact_forces.flatten()
+            // com_inertia.flatten(),
+            // com_velocity.flatten(),
+            // actuator_forces.flatten(),
+            // external_contact_forces.flatten()
         ]
         .to_owned();
     }
 
-    pub fn step(&mut self, action: &nd::Array1<f64>) -> StepInfo {
+    pub fn reset(&mut self) {
+        unsafe {
+            mujoco::ffi::mj_resetData(self.model.get_ref(), self.data.get_mut());
+        };
+    }
+    pub fn step(&mut self, action: nd::ArrayView1<f64>) -> StepInfo {
         self.data
             .get_ctrl()
             .as_slice_mut()
             .unwrap()
             .copy_from_slice(action.as_slice().unwrap());
+        let before_step_obs = self.get_obs();
+        if before_step_obs[1].abs() > 0.2 {
+            StepInfo {
+                obs: Array1::<f64>::zeros(0),
+                next_obs: Array1::<f64>::zeros(0),
+                reward: 0f64,
+                terminated: true,
+                truncated: false,
+            };
+        }
         unsafe { mujoco::ffi::mj_step(self.model.get_ref(), self.data.get_mut()) };
-        let qpos = self.data.get_qpos();
+        let after_step_obs = self.get_obs();
+        let reward = 1.0;
+        let terminated = after_step_obs[1].abs() > 0.2;
+        // let qpos = self.data.get_qpos();
         // println!("qpos={}", qpos);
-        let now_torso_height = *qpos.get((2, 0)).unwrap();
+        // let now_torso_height = *qpos.get((2, 0)).unwrap();
         // println!("now_torso_height={}", now_torso_height);
 
-        let stand_reward = (now_torso_height - self.torso_height) + 1.0;
-        let quad_ctrl_cost = 0.1 * self.data.get_ctrl().sqrt().sum();
-        let mut quad_impact_cost = 0.5e-6 * self.data.get_cfrc_ext().sqrt().sum();
-        quad_impact_cost = quad_impact_cost.min(10.0);
-        let reward = stand_reward - quad_ctrl_cost - quad_impact_cost + 1.0;
-        return StepInfo {
-            next_obs: self.get_obs(),
+        // let stand_reward = (now_torso_height - self.torso_height) / self.model.opt.timestep + 1.0;
+        // let quad_ctrl_cost = 0.1 * self.data.get_ctrl().pow2().sqrt().sum();
+        // let mut quad_impact_cost = 0.5e-6 * self.data.get_cfrc_ext().sqrt().sum();
+        // quad_impact_cost = quad_impact_cost.min(10.0);
+        // let reward = stand_reward - quad_ctrl_cost - quad_impact_cost + 1.0;
+        // println!("after_step_obs={}", after_step_obs);
+        let step_info = StepInfo {
+            obs: before_step_obs,
+            next_obs: after_step_obs,
             reward: reward,
-            terminated: false,
+            terminated: terminated,
             truncated: false,
         };
+        // println!("step={:?}", step_info);
+        return step_info;
     }
 
     pub fn get_obs_len(&self) -> usize {
@@ -133,7 +154,7 @@ impl Env {
         for i in 0..max_length {
             let obs = self.get_obs();
             let action = policy(&obs);
-            let step_info = self.step(&action);
+            let step_info = self.step(action.view());
             if step_info.terminated || step_info.truncated {
                 break;
             }
@@ -186,7 +207,7 @@ impl Env {
         let mut trajs = vec![];
         let start = SystemTime::now();
         for i in 0..ntraj {
-            if i % 100 == 0 {
+            if i % 10 == 0 {
                 println!("elapsed={:?}", start.elapsed());
                 println!("{}", i);
             }

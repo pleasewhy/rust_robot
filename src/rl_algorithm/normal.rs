@@ -1,7 +1,7 @@
 use burn::tensor::{backend::Backend, ReshapeArgs, Tensor};
 use rand::prelude::*;
 use rand_distr::{Distribution, StandardNormal};
-use std::marker::PhantomData;
+use std::{marker::PhantomData, time::SystemTime};
 
 #[derive(Debug, Clone)]
 pub struct Normal<B: Backend> {
@@ -36,7 +36,10 @@ impl<B: Backend> Normal<B> {
             - (2f32 * pi).sqrt().ln()
     }
     pub fn independent_log_prob(&self, value: Tensor<B, 2>) -> Tensor<B, 1> {
-        return self.log_prob(value).sum_dim(1).flatten::<1>(0, 1);
+        let start = SystemTime::now();
+        let x = self.log_prob(value).sum_dim(1).flatten::<1>(0, 1);
+        println!("independent_log_prob cost={:?}", start.elapsed());
+        return x;
     }
 }
 

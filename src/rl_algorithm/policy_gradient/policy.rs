@@ -6,6 +6,7 @@ use burn::optim::AdamConfig;
 use burn::optim::GradientsParams;
 use burn::optim::Optimizer;
 use burn::tensor::backend::AutodiffBackend;
+use burn::tensor::cast::ToElement;
 use burn::{nn::Linear, nn::LinearConfig, prelude::*};
 
 #[derive(Module, Debug)]
@@ -13,12 +14,18 @@ pub struct MLPPolicy<B: Backend> {
     mean_net: utils::Mlp<B>,
     logstd: Linear<B>,
     place_holder: Tensor<B, 2>,
+    pub train: bool,
 }
 
 impl<B: Backend> MLPPolicy<B> {
     pub fn forward(&self, input: Tensor<B, 2>) -> normal::Normal<B> {
-        let mean = self.mean_net.forward::<2>(input);
+        let mean: Tensor<B, 2> = self.mean_net.forward::<2>(input);
         let logstd = self.logstd.forward(self.place_holder.clone().flatten(0, 1));
+        // if self.train {
+        //     let ones = Tensor::<B, 2>::ones(Shape::new([1, 456]), &self.place_holder.device());
+        //     println!("logstd={}", logstd);
+        //     println!("mean={}", self.mean_net.forward::<2>(ones));
+        // }
 
         return normal::Normal::new(mean, logstd.exp());
     }
@@ -51,6 +58,7 @@ impl MLPPolicyConfig {
             mean_net,
             logstd,
             place_holder,
+            train: false,
         };
     }
 }
@@ -79,12 +87,19 @@ impl<B: AutodiffBackend> MLPPolicyTrainer<B> {
         obs: Tensor<B, 2>,
         actions: Tensor<B, 2>,
         advantages: Tensor<B, 1>,
-    ) {
+    ) -> f32 {
+        self.mlp_policy.train = true;
         let log_prob = self.mlp_policy.forward(obs).independent_log_prob(actions);
-        let loss = -(log_prob * advantages).mean();
+        // println!("log_prob={:?} {}", log_prob.shape(), log_prob);
+        // println!("advantages={:?} {}", advantages.shape(), advantages);
+        let loss = -(log_prob.clone() * advantages.clone()).mean();
+        // println!("(log_prob * advantages).mean()={}", (log_prob.clone() * advantages.clone()).mean());
+        // println!("-(log_prob * advantages).mean()={}", -(log_prob.clone() * advantages.clone()).mean());
         let grads = loss.backward();
         let grads = GradientsParams::from_grads(grads, &self.mlp_policy);
-
+        // println!("grad={:?}", grads);
         self.mlp_policy = self.adam.step(self.lr, self.mlp_policy.clone(), grads);
+        self.mlp_policy.train = false;
+        return loss.into_scalar().to_f32();
     }
 }

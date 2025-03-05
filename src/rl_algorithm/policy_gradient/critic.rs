@@ -7,6 +7,7 @@ use burn::optim::AdamConfig;
 use burn::optim::GradientsParams;
 use burn::optim::Optimizer;
 use burn::tensor::backend::AutodiffBackend;
+use burn::tensor::cast::ToElement;
 use burn::{nn::Linear, nn::LinearConfig, prelude::*};
 
 #[derive(Module, Debug)]
@@ -55,12 +56,13 @@ impl<B: AutodiffBackend> MLPCriticTrainer<B> {
             lr: learn_rate,
         };
     }
-    pub fn train_update(&mut self, obs: Tensor<B, 2>, q_values: Tensor<B, 1>) {
+    pub fn train_update(&mut self, obs: Tensor<B, 2>, q_values: Tensor<B, 1>) -> f32 {
         let pred_q_values = self.mlp_critic.forward(obs).flatten::<1>(0, 1);
         let loss = burn::nn::loss::MseLoss::new().forward(pred_q_values, q_values, Reduction::Mean);
         let grads = loss.backward();
         let grads = GradientsParams::from_grads(grads, &self.mlp_critic);
 
         self.mlp_critic = self.adam.step(self.lr, self.mlp_critic.clone(), grads);
+        return loss.into_scalar().to_f32();
     }
 }

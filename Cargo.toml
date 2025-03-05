@@ -13,3 +13,4 @@ burn = { version = "0.16.0", features = ["train", "ndarray", "wgpu"] }
 rand_distr = "0.5.1"
 rand = "0.9.0"
 core_affinity = "0.8.3"
+threadpool = "1.8.1"
