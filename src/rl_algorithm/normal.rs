@@ -1,4 +1,4 @@
-use burn::tensor::{backend::Backend, ReshapeArgs, Tensor};
+use burn::tensor::{backend::Backend, ReshapeArgs, Tensor, TensorData};
 use rand::prelude::*;
 use rand_distr::{Distribution, StandardNormal};
 use std::{marker::PhantomData, time::SystemTime};
@@ -15,10 +15,12 @@ impl<B: Backend> Normal<B> {
     }
 
     pub fn sample(&self) -> Tensor<B, 2> {
-        let mut rng = rand::rng();
+        let rng = rand::rng();
         let iter = rng.sample_iter::<f64, StandardNormal>(StandardNormal);
         let vec: Vec<f64> = iter.take(self.loc.shape().num_elements()).collect();
-        let standard_normal_rand = Tensor::<B, 1>::from_floats(vec.as_slice(), &self.loc.device());
+        let shape = [vec.len(); 1];
+        let standard_normal_rand =
+            Tensor::<B, 1>::from_data(TensorData::new(vec, shape), &self.loc.device());
         let standard_normal_rand = standard_normal_rand.reshape(self.loc.shape());
         // println!("standard_normal_rand.shape={:?}", standard_normal_rand.shape());
         // println!("loc.shape={:?}", self.loc.shape());
@@ -36,9 +38,7 @@ impl<B: Backend> Normal<B> {
             - (2f32 * pi).sqrt().ln()
     }
     pub fn independent_log_prob(&self, value: Tensor<B, 2>) -> Tensor<B, 1> {
-        let start = SystemTime::now();
         let x = self.log_prob(value).sum_dim(1).flatten::<1>(0, 1);
-        println!("independent_log_prob cost={:?}", start.elapsed());
         return x;
     }
 }

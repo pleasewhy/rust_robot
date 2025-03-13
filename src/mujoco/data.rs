@@ -1,4 +1,5 @@
-use super::model;
+
+use super::{model};
 use std::{
     any::Any,
     ffi::CString,
@@ -8,7 +9,7 @@ use std::{
 
 use super::ffi::{self, mjData_, mjs_findBody};
 
-#[macro_export]
+// #[macro_export]
 macro_rules! data_field_by_body_def {
     ($func_name:ident, $field:ident, $type:ty, $num_field:ident, $size:expr) => {
         pub(crate) fn $func_name(&self, name: &str) -> [$type; $size] {
@@ -28,7 +29,7 @@ macro_rules! data_field_by_body_def {
     };
 }
 
-#[macro_export]
+// #[macro_export]
 macro_rules! get_data_filed {
     ($func_name:ident, $field:ident, $type:ty, $row_size_field:ident, $col_size:expr) => {
         pub(crate) fn $func_name(&self) -> ndarray::ArrayViewMut2<$type> {

@@ -1,50 +1,33 @@
 use std::{
-    any::Any,
-    collections::HashMap,
     ffi::CString,
     ops::{Deref, DerefMut},
     sync::Arc,
 };
 
-use super::ffi::{self, mjData_, mjs_findBody};
-
-struct MyModel(*mut ffi::mjModel);
-struct MySpec(*mut ffi::mjSpec);
-unsafe impl Send for MyModel {}
-unsafe impl Send for MySpec {}
-impl Deref for MyModel {
-    type Target = ffi::mjModel;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*self.0 }
-    }
+macro_rules! get_data_filed {
+    ($func_name:ident, $field:ident, $type:ty, $row_size_field:ident, $col_size:expr) => {
+        pub(crate) fn $func_name(&self) -> ndarray::ArrayViewMut2<$type> {
+            return unsafe {
+                ndarray::ArrayViewMut2::<$type>::from_shape_ptr(
+                    (self.$row_size_field as usize, $col_size),
+                    self.$field,
+                )
+            };
+        }
+    };
 }
 
-impl DerefMut for MyModel {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.0 }
-    }
-}
 
-impl Deref for MySpec {
-    type Target = ffi::mjSpec;
-
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*self.0 }
-    }
-}
-
-impl DerefMut for MySpec {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.0 }
-    }
-}
+use super::ffi;
 
 pub struct Model {
-    pub mj_model: MyModel,
-    pub mj_spec: MySpec,
+    mj_model: *mut ffi::mjModel,
+    mj_spec: *mut ffi::mjSpec,
     // pub body_name_map: HashMap<String, usize>,
 }
+
+unsafe impl Send for Model {}
+unsafe impl Sync for Model {}
 
 impl Model {
     fn vec_i8_to_string(vec: Vec<i8>) -> Result<String, std::string::FromUtf8Error> {
@@ -74,8 +57,8 @@ impl Model {
             }
 
             return Result::Ok(Arc::from(Model {
-                mj_model: MyModel(mj_model),
-                mj_spec: MySpec(mj_spec),
+                mj_model: mj_model,
+                mj_spec: mj_spec,
             }));
         }
     }
@@ -88,7 +71,7 @@ impl Model {
     pub fn get_body_id(&self, name: &str) -> usize {
         unsafe {
             return ffi::mj_name2id(
-                self.mj_model.0,
+                self.mj_model,
                 ffi::mjtObj__mjOBJ_BODY as i32,
                 CString::new(name).unwrap().as_ptr(),
             ) as usize;
@@ -116,6 +99,7 @@ impl Model {
             );
         }
     }
+    get_data_filed!(get_body_mass, body_mass, f64, nbody, 1);
 }
 
 impl Deref for Model {
@@ -138,7 +122,7 @@ impl DerefMut for Model {
 impl Drop for Model {
     fn drop(&mut self) {
         unsafe {
-            ffi::mj_deleteModel(self.mj_model.0);
+            ffi::mj_deleteModel(self.mj_model);
         }
     }
 }

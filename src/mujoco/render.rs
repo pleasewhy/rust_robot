@@ -57,8 +57,6 @@ impl Render {
                 &mut x.render_context,
             );
             x.viewport = ffi::mjr_maxViewport(&mut x.render_context);
-            // x.viewport.height = x.viewport.height / 2;
-            // x.viewport.width = x.viewport.width / 2;
         }
         return x;
     }
