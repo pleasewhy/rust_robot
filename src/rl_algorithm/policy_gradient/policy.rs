@@ -1,7 +1,6 @@
-use std::time::SystemTime;
 
-use crate::rl_algorithm::normal;
-use crate::rl_algorithm::utils;
+use crate::burn_utils::distribution::Normal;
+use crate::burn_utils::{build_mlp, Sequence};
 use burn::nn::Tanh;
 use burn::optim::adaptor::OptimizerAdaptor;
 use burn::optim::Adam;
@@ -14,19 +13,18 @@ use burn::{nn::Linear, nn::LinearConfig, prelude::*};
 
 #[derive(Module, Debug)]
 pub struct MLPPolicy<B: Backend> {
-    mean_net: utils::Mlp<B>,
-    out_active_func: nn::Tanh,
+    mean_net: Sequence<B>,
     logstd: Linear<B>,
-    pub train: bool,
+    tanh: Tanh,
 }
 
 impl<B: Backend> MLPPolicy<B> {
-    pub fn forward(&self, input: Tensor<B, 2>) -> normal::Normal<B> {
+    pub fn forward(&self, input: Tensor<B, 2>) -> Normal<B> {
         let mean: Tensor<B, 2> = self.mean_net.forward::<2>(input);
-        let mean = self.out_active_func.forward(mean);
+        let mean = self.tanh.forward(mean);
         let logstd = self.logstd.weight.val().flatten(0, 1);
 
-        return normal::Normal::new(mean, logstd.exp().powi_scalar(2));
+        return Normal::new(mean, logstd.exp().powi_scalar(2));
     }
 }
 
@@ -42,22 +40,21 @@ pub struct MLPPolicyConfig {
 impl MLPPolicyConfig {
     /// Returns the initialized Mlp.
     pub fn init<B: Backend>(&self, device: &B::Device) -> MLPPolicy<B> {
-        let mean_net = utils::MlpConfig::new(
+        let mean_net = build_mlp(
             self.observation_dim,
             self.action_dim,
             self.n_layers,
             self.layer_size,
-        )
-        .init::<B>(&device);
+            device,
+        );
         let logstd = LinearConfig::new(1, self.action_dim)
             .with_bias(false)
             .with_initializer(nn::Initializer::Zeros)
             .init::<B>(&device);
         return MLPPolicy {
             mean_net,
-            out_active_func: Tanh::new(),
             logstd,
-            train: false,
+            tanh: Tanh::new(),
         };
     }
 }
@@ -87,17 +84,13 @@ impl<B: AutodiffBackend> MLPPolicyTrainer<B> {
         actions: Tensor<B, 2>,
         advantages: Tensor<B, 1>,
     ) -> f32 {
-        self.mlp_policy.train = true;
-        let start = SystemTime::now();
         let log_prob = self.mlp_policy.forward(obs).independent_log_prob(actions);
         let loss = -(log_prob.clone() * advantages.clone()).mean();
-
         let grads = loss.backward();
 
         let grads = GradientsParams::from_grads(grads, &self.mlp_policy);
 
         self.mlp_policy = self.adam.step(self.lr, self.mlp_policy.clone(), grads);
-        self.mlp_policy.train = false;
         return loss.into_scalar().to_f32();
     }
 }

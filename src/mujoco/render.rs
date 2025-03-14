@@ -1,4 +1,6 @@
 use super::ffi;
+use super::Data;
+use super::Model;
 use core::hash;
 use glfw::{self, Context};
 use glfw::{fail_on_errors, Glfw};
@@ -60,11 +62,12 @@ impl Render {
         }
         return x;
     }
-    pub fn update_scene(&mut self, model: &ffi::mjModel, data: &mut ffi::mjData) {
+    pub fn update_scene(&mut self, model: &Model, data: &mut Data) {
+        self.camera.lookat = data.get_subtree_com_by_body("torso");
         unsafe {
             ffi::mjv_updateScene(
-                model,
-                data,
+                model.get_ref(),
+                data.get_mut(),
                 &self.option,
                 std::ptr::null(),
                 &mut self.camera,

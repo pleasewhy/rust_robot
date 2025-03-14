@@ -1,5 +1,5 @@
-use crate::rl_algorithm::normal;
-use crate::rl_algorithm::utils;
+use crate::burn_utils::{build_mlp, Sequence};
+use burn::module::AutodiffModule;
 use burn::nn::loss::Reduction;
 use burn::optim::adaptor::OptimizerAdaptor;
 use burn::optim::Adam;
@@ -12,7 +12,7 @@ use burn::{nn::Linear, nn::LinearConfig, prelude::*};
 
 #[derive(Module, Debug)]
 pub struct MLPCritic<B: Backend> {
-    net: utils::Mlp<B>,
+    net: Sequence<B>,
 }
 
 impl<B: Backend> MLPCritic<B> {
@@ -31,8 +31,13 @@ pub struct MLPCriticConfig {
 impl MLPCriticConfig {
     /// Returns the initialized Mlp.
     pub fn init<B: Backend>(&self, device: &B::Device) -> MLPCritic<B> {
-        let net = utils::MlpConfig::new(self.observation_dim, 1, self.n_layers, self.layer_size)
-            .init::<B>(&device);
+        let net = build_mlp(
+            self.observation_dim,
+            1,
+            self.n_layers,
+            self.layer_size,
+            device,
+        );
         return MLPCritic { net };
     }
 }

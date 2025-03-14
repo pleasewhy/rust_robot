@@ -1,5 +1,6 @@
 // #![allow(warnings)]
 
+mod burn_utils;
 mod mujoco;
 mod rl_algorithm;
 mod rl_env;
@@ -35,12 +36,12 @@ fn run<ENV: MujocoEnv + Send + 'static>() {
     let action_dim = eval_env.get_action_dim();
     let learn_rate = 1e-3;
     let reward_discout = 0.99;
-    let batch_size = 200;
+    let batch_size = 100;
     let traj_length = 1000;
     let layer_dim = 256;
     let n_layers = 3;
     let n_iter = 10000;
-    let baseline_gradient_steps = 50;
+    let baseline_gradient_steps = 5;
     let video_log_freq = 100;
 
     let pg_agent_conf =

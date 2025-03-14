@@ -203,14 +203,14 @@ impl<B: AutodiffBackend> PolicyGradientAgent<B> {
         // HINT: append a dummy T+1 value for simpler recursive calculation
         // values.push(0f32);
         let mut advantages = NdVec2::<f32>::zeros((values.shape()[0], values.shape()[1]));
-        println!("advantages_size={:?}", advantages.shape());
-        println!("values={:?}", values.shape());
-        println!("q_values={:?}", q_values.shape());
-        println!("terminals={:?}", terminals.shape());
-        println!(
-            "reward_gamma={:?} gae_gamma={}",
-            self.reward_gamma, self.gae_gamma
-        );
+        // println!("advantages_size={:?}", advantages.shape());
+        // println!("values={:?}", values.shape());
+        // println!("q_values={:?}", q_values.shape());
+        // println!("terminals={:?}", terminals.shape());
+        // println!(
+        //     "reward_gamma={:?} gae_gamma={}",
+        //     self.reward_gamma, self.gae_gamma
+        // );
         for b in 0..batch_size {
             for t in (0..traj_length).rev() {
                 let sigma = rewards[(b, t)]

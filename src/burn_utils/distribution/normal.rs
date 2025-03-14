@@ -1,3 +1,4 @@
+use burn::tensor::Distribution as td;
 use burn::tensor::{backend::Backend, ReshapeArgs, Tensor, TensorData};
 use rand::prelude::*;
 use rand_distr::{Distribution, StandardNormal};
@@ -17,14 +18,13 @@ impl<B: Backend> Normal<B> {
     pub fn sample(&self) -> Tensor<B, 2> {
         let rng = rand::rng();
         let iter = rng.sample_iter::<f64, StandardNormal>(StandardNormal);
-        let vec: Vec<f64> = iter.take(self.loc.shape().num_elements()).collect();
+        let vec = iter
+            .take(self.loc.shape().num_elements())
+            .collect::<Vec<f64>>();
         let shape = [vec.len(); 1];
         let standard_normal_rand =
             Tensor::<B, 1>::from_data(TensorData::new(vec, shape), &self.loc.device());
         let standard_normal_rand = standard_normal_rand.reshape(self.loc.shape());
-        // println!("standard_normal_rand.shape={:?}", standard_normal_rand.shape());
-        // println!("loc.shape={:?}", self.loc.shape());
-        // println!("scale.shape={:?}", self.scale.shape());
         return self.loc.clone()
             + standard_normal_rand.clone()
                 * self.scale.clone().expand(standard_normal_rand.shape());
