@@ -2,14 +2,28 @@
 
 mod burn_utils;
 mod mujoco;
+mod ppo_run;
 mod rl_algorithm;
 mod rl_env;
 
 use burn::backend::libtorch::LibTorchDevice;
-use burn::backend::{Autodiff, LibTorch};
+use burn::backend::ndarray::NdArrayDevice;
+use burn::backend::{Autodiff, LibTorch, NdArray};
+use burn::grad_clipping::GradientClippingConfig;
+use burn::module::Module;
+use burn::nn::Linear;
+use burn::nn::Tanh;
+use burn::prelude::Backend;
+use burn::tensor::cast::ToElement;
 use burn::tensor::{Distribution, Shape, Tensor};
+use burn_utils::distribution::Normal;
+use burn_utils::Sequence;
 use chrono::{DateTime, Local};
 use ndarray::Array1;
+use rl_algorithm::model::Model;
+use rl_algorithm::ppo::config::PPOTrainingConfig;
+use rl_algorithm::ppo::model::ActorOutput;
+use rl_algorithm::ppo::{model::ActorModel, model::BaselineModel, ppo_agent::PPO};
 use rl_env::env::MujocoEnv;
 use rl_env::env_sampler;
 use rl_env::gym_humanoid_v4::HumanoidV4;
@@ -116,5 +130,8 @@ fn run<ENV: MujocoEnv + Send + 'static>() {
     }
 }
 fn main() {
-    run::<HumanoidV4>();
+    // let t = Tensor::<LibTorch, 2>::zeros([1, 1], &LibTorchDevice::Cpu);
+    // let a = t.into_scalar();
+    // run::<HumanoidV4>();
+    ppo_run::train_network::<HumanoidV4>();
 }

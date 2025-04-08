@@ -1,3 +1,8 @@
+use burn::tensor::backend::Backend;
+use burn::tensor::Bool;
+use burn::tensor::Element;
+use burn::tensor::Tensor;
+use burn::tensor::TensorData;
 use std::ops::{Index, IndexMut};
 use std::usize;
 
@@ -24,11 +29,24 @@ impl<T: Clone + Zero + ToPrimitive, const D: usize> NdVec<T, D> {
     pub fn into_vec(self) -> Vec<T> {
         return self.raw_vec;
     }
+    pub fn as_slice(&self) -> &[T] {
+        self.raw_vec.as_slice()
+    }
     pub fn from_shape_vec(vec: Vec<T>, shape: [usize; D]) -> Self {
         Self {
             raw_vec: vec,
             shape: shape,
         }
+    }
+    pub fn num_elements(&self) -> usize {
+        if self.shape.is_empty() {
+            return 0;
+        }
+        let mut sz = self.shape[0];
+        for x in &self.shape.as_slice()[1..] {
+            sz *= x;
+        }
+        return sz;
     }
     pub fn to_f64(&self) -> NdVec<f64, D> {
         let vec = self
@@ -42,6 +60,7 @@ impl<T: Clone + Zero + ToPrimitive, const D: usize> NdVec<T, D> {
         };
     }
 }
+
 impl<T: Clone + Zero + ToPrimitive> NdVec<T, 2> {
     // 计算二维索引位置
     fn calculate_index(&self, (row, col): (usize, usize)) -> usize {
@@ -117,6 +136,9 @@ impl<T: Clone + Zero + ToPrimitive> NdVec<T, 3> {
     pub fn get(&self, shape: (usize, usize, usize)) -> Option<&T> {
         return self.raw_vec.get(self.calculate_index(shape));
     }
+    pub fn as_nd_array(&self) -> ndarray::ArrayView3<T> {
+        ndarray::ArrayView3::from_shape(self.shape, self.raw_vec.as_slice()).unwrap()
+    }
 }
 
 // 为NdVec3实现Index和IndexMut trait
@@ -137,6 +159,46 @@ impl<T: Clone + Zero + ToPrimitive> IndexMut<(usize, usize, usize)> for NdVec<T,
 
 pub type NdVec2<A> = NdVec<A, 2>;
 pub type NdVec3<A> = NdVec<A, 3>;
+
+pub fn vec2tensor1<B: Backend, T: Element + Zero + ToPrimitive>(
+    arr: Vec<T>,
+    device: &B::Device,
+) -> Tensor<B, 1> {
+    let shape = [arr.len()];
+    let tensor_data = TensorData::new(arr, shape);
+    return Tensor::<B, 1>::from_data(tensor_data, device);
+}
+
+pub fn vec2tensor2<B: Backend, T: Element + Zero + ToPrimitive>(
+    arr: NdVec2<T>,
+    device: &B::Device,
+) -> Tensor<B, 2> {
+    let shape = arr.shape();
+    let tensor_data = TensorData::new(arr.into_vec(), shape);
+    return Tensor::<B, 2>::from_data(tensor_data, device);
+}
+
+pub fn vec2tensor3<B: Backend, T: Element + Zero + ToPrimitive>(
+    arr: NdVec3<T>,
+    device: &B::Device,
+) -> Tensor<B, 3> {
+    let shape: [usize; 3] = arr.shape();
+    let tensor_data = TensorData::new(arr.into_vec(), shape);
+    return Tensor::<B, 3>::from_data(tensor_data, device);
+}
+
+pub fn tensor2vec2<B: Backend>(tensor: &Tensor<B, 2>) -> NdVec2<f32> {
+    let vec = tensor.to_data().into_vec::<f32>().unwrap();
+    return NdVec2::from_shape_vec(vec, tensor.shape().dims());
+}
+pub fn tensor2vec1<B: Backend>(tensor: &Tensor<B, 1>) -> Vec<f32> {
+    let vec = tensor.to_data().into_vec::<f32>().unwrap();
+    return vec;
+}
+pub fn booltensor2vec1<B: Backend>(tensor: &Tensor<B, 1, Bool>) -> Vec<bool> {
+    let vec = tensor.to_data().into_vec::<bool>().unwrap();
+    return vec;
+}
 
 #[cfg(test)]
 mod tests {

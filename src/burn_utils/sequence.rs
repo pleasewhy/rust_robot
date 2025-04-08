@@ -60,3 +60,26 @@ pub fn build_mlp<B: Backend>(
     ));
     return seq;
 }
+
+pub fn build_mlp_by_dims<B: Backend>(
+    input_size: usize,
+    output_size: usize,
+    layer_dims: &Vec<usize>,
+    device: &B::Device,
+) -> Sequence<B> {
+    let mut seq: Sequence<B> = Sequence {
+        forwarder_vec: vec![],
+    };
+    let mut in_size = input_size;
+    for hidden_dim in layer_dims {
+        seq.push(BurnForwarder::Linear(
+            LinearConfig::new(in_size, *hidden_dim).init(device),
+        ));
+        seq.push(BurnForwarder::Relu(Relu::new()));
+        in_size = *hidden_dim;
+    }
+    seq.push(BurnForwarder::Linear(
+        LinearConfig::new(in_size, output_size).init(device),
+    ));
+    return seq;
+}

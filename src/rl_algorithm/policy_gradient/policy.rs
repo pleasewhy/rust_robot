@@ -21,7 +21,7 @@ pub struct MLPPolicy<B: Backend> {
 impl<B: Backend> MLPPolicy<B> {
     pub fn forward(&self, input: Tensor<B, 2>) -> Normal<B> {
         let mean: Tensor<B, 2> = self.mean_net.forward::<2>(input);
-        let mean = self.tanh.forward(mean);
+        // let mean = self.tanh.forward(mean);
         let logstd = self.logstd.weight.val().flatten(0, 1);
 
         return Normal::new(mean, logstd.exp().powi_scalar(2));

@@ -1,5 +1,6 @@
 use burn::tensor::Distribution as td;
 use burn::tensor::{backend::Backend, ReshapeArgs, Tensor, TensorData};
+use core::f32;
 use rand::prelude::*;
 use rand_distr::{Distribution, StandardNormal};
 use std::{marker::PhantomData, time::SystemTime};
@@ -40,6 +41,10 @@ impl<B: Backend> Normal<B> {
     pub fn independent_log_prob(&self, value: Tensor<B, 2>) -> Tensor<B, 1> {
         let x = self.log_prob(value).sum_dim(1).flatten::<1>(0, 1);
         return x;
+    }
+    pub fn entropy(&self) -> Tensor<B, 1> {
+        let pi = f32::consts::PI;
+        return self.scale.clone().log() + 0.5 + 0.5 * (2.0 * pi).ln();
     }
 }
 

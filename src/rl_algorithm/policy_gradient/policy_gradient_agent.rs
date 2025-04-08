@@ -106,6 +106,7 @@ fn get_indices<B: Backend>(obs: Tensor<B, 2>, device: &B::Device) -> Tensor<B, 1
     let tensor_data = TensorData::new(indices, [shape]);
     return Tensor::from_data(tensor_data, device);
 }
+
 impl<B: AutodiffBackend> PolicyGradientAgent<B> {
     pub fn update(
         &mut self,
@@ -200,17 +201,7 @@ impl<B: AutodiffBackend> PolicyGradientAgent<B> {
         let batch_size = obs.shape()[0];
         let traj_length = obs.shape()[1];
         println!("batch_size={} traj_length={}", batch_size, traj_length);
-        // HINT: append a dummy T+1 value for simpler recursive calculation
-        // values.push(0f32);
         let mut advantages = NdVec2::<f32>::zeros((values.shape()[0], values.shape()[1]));
-        // println!("advantages_size={:?}", advantages.shape());
-        // println!("values={:?}", values.shape());
-        // println!("q_values={:?}", q_values.shape());
-        // println!("terminals={:?}", terminals.shape());
-        // println!(
-        //     "reward_gamma={:?} gae_gamma={}",
-        //     self.reward_gamma, self.gae_gamma
-        // );
         for b in 0..batch_size {
             for t in (0..traj_length).rev() {
                 let sigma = rewards[(b, t)]
