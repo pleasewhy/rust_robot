@@ -1,5 +1,3 @@
-// use crate::base::ElemType;
-use burn::grad_clipping::GradientClippingConfig;
 
 pub struct PPOTrainingConfig {
     pub gae_gamma: f32,

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use burn::{
     prelude::Backend,
     tensor::{Bool, Int, Tensor, TensorData},
@@ -5,7 +7,7 @@ use burn::{
 
 use crate::burn_utils::randperm;
 
-use super::utils;
+use super::rl_utils;
 
 pub struct Memory<B: Backend> {
     obs: Tensor<B, 2>,
@@ -59,9 +61,7 @@ impl<B: Backend> Memory<B> {
         &'a self,
         num_epoch: usize,
         num_mini_batches: usize,
-        old_logprobs: Tensor<B, 1>,
-        expected_values: Tensor<B, 1>,
-        advantages: Tensor<B, 1>,
+        extra_mini_batch_tensor: Option<HashMap<&'a str, Tensor<B, 1>>>,
     ) -> MiniBatchIter<'a, B> {
         let mini_batch_size = self.len() / num_mini_batches;
         let random_indices_tensor = randperm::<B>(num_mini_batches * mini_batch_size, &self.device);
@@ -73,9 +73,7 @@ impl<B: Backend> Memory<B> {
             num_mini_batches,
             mini_batch_size,
             random_indices_tensor,
-            old_logprobs,
-            expected_values,
-            advantages,
+            extra_mini_batch_tensor,
         }
     }
 }
@@ -87,19 +85,11 @@ pub struct MiniBatchIter<'a, B: Backend> {
     num_mini_batches: usize,
     mini_batch_size: usize,
     random_indices_tensor: Vec<Tensor<B, 1, Int>>,
-    old_logprobs: Tensor<B, 1>,
-    expected_values: Tensor<B, 1>,
-    advantages: Tensor<B, 1>,
+    extra_mini_batch_tensor: Option<HashMap<&'a str, Tensor<B, 1>>>,
 }
 
 impl<'a, B: Backend> Iterator for MiniBatchIter<'a, B> {
-    type Item = (
-        Tensor<B, 2>,
-        Tensor<B, 2>,
-        Tensor<B, 1>,
-        Tensor<B, 1>,
-        Tensor<B, 1>,
-    );
+    type Item = (Tensor<B, 2>, Tensor<B, 2>, HashMap<&'a str, Tensor<B, 1>>);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_step >= self.num_epoch * self.num_mini_batches {
@@ -112,16 +102,18 @@ impl<'a, B: Backend> Iterator for MiniBatchIter<'a, B> {
 
         let obs = self.memory.obs.clone().select(0, indices_tensor.clone());
         let action = self.memory.action.clone().select(0, indices_tensor.clone());
-        let old_logprobs = self.old_logprobs.clone().select(0, indices_tensor.clone());
-        let expected_values = self
-            .expected_values
-            .clone()
-            .select(0, indices_tensor.clone());
-        let advantages = self.advantages.clone().select(0, indices_tensor.clone());
+        let mut extra_tensor_map = HashMap::new();
+
+        if let Some(extra_mini_batch_tensor) = self.extra_mini_batch_tensor.as_ref() {
+            extra_tensor_map = extra_mini_batch_tensor
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone().select(0, indices_tensor.clone())))
+                .collect();
+        }
 
         self.current_step += 1;
 
-        Some((obs, action, old_logprobs, expected_values, advantages))
+        Some((obs, action, extra_tensor_map))
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -133,6 +125,16 @@ impl<'a, B: Backend> Iterator for MiniBatchIter<'a, B> {
 impl<'a, B: Backend> ExactSizeIterator for MiniBatchIter<'a, B> {
     fn len(&self) -> usize {
         self.num_epoch * self.num_mini_batches - self.current_step
+    }
+}
+
+impl<'a, B: Backend> MiniBatchIter<'a, B> {
+    pub fn reset_random_indices_tensor(&mut self) {
+        let random_indices_tensor = randperm::<B>(
+            self.num_mini_batches * self.mini_batch_size,
+            &self.memory.device,
+        );
+        self.random_indices_tensor = random_indices_tensor.split(self.mini_batch_size, 0);
     }
 }
 

@@ -33,33 +33,15 @@ use crate::{
     },
 };
 
-use super::{
-    memory::Memory,
-    ppo::{self, config::PPOTrainingConfig},
-};
+use super::{config::TrainConfig, model::{ActorModel, BaselineModel}};
+
+use super::memory::Memory;
+use crate::rl_algorithm::policy_gradient::{self, config::PgTrainingConfig};
+use crate::rl_algorithm::ppo::{self, config::PPOTrainingConfig};
+
 use crate::rl_env::nd_vec::vec2tensor2;
 
-pub struct TrainConfig {
-    pub ppo_train_config: PPOTrainingConfig,
-    pub n_env: usize,
-    pub traj_length: usize,
-    pub video_log_freq: usize,
-    pub train_iter: usize,
-    pub ckpt_save_path: String,
-    pub resume_from_ckpt_path: Option<String>,
-    pub save_model_freq: usize,
-    pub grad_clip: Option<GradientClippingConfig>,
-}
 
-// struct LogInfo {
-//     iter: usize,
-//     actor_loss: f32,
-//     baseline_loss: f32,
-//     learn_time: f32,
-//     collect_time: f32,
-//     reward: f32,
-//     q_vals: f32,
-// }
 
 struct CheckPoint<B: Backend, R: Record<B>> {
     actor_net_ckpter: FileCheckpointer<R>,
@@ -140,11 +122,7 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         }
     }
 
-    pub fn sample_to_memory<AM: ppo::model::ActorModel<B>>(
-        &mut self,
-        actor: &AM,
-        iter: usize,
-    ) -> Memory<B> {
+    pub fn sample_to_memory<AM: ActorModel<B>>(&mut self, actor: &AM, iter: usize) -> Memory<B> {
         let policy = |obs: NdVec2<f64>| {
             let action = actor.forward(vec2tensor2(obs, &self.device)).sample();
             return tensor2vec2(&action).to_f64();
@@ -161,8 +139,8 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
     }
 
     pub fn train_update<
-        AM: ppo::model::ActorModel<B> + AutodiffModule<B> + Display,
-        BM: ppo::model::BaselineModel<B> + AutodiffModule<B> + Display,
+        AM: ActorModel<B> + AutodiffModule<B> + Display,
+        BM: BaselineModel<B> + AutodiffModule<B> + Display,
     >(
         &mut self,
         mut actor_net: AM,
@@ -179,7 +157,7 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         // println!("baseline_optimizer={:?}", baseline_optimizer);
         (actor_net, baseline_net, actor_optimizer, baseline_optimizer) =
             self.resume_from_ckpt(actor_net, baseline_net, actor_optimizer, baseline_optimizer);
-        let mut update_info: super::utils::UpdateInfo;
+        let mut update_info: super::rl_utils::UpdateInfo;
         let mut log_info = HashMap::<String, f32>::new();
         for iter in 0..self.config.train_iter {
             log_info.clear();
@@ -202,7 +180,7 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
                 &memory,
                 &mut actor_optimizer,
                 &mut baseline_optimizer,
-                &self.config.ppo_train_config,
+                &self.config,
                 &self.device,
             )
             .unwrap();
@@ -281,8 +259,8 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
     }
 
     fn resume_from_ckpt<
-        AM: ppo::model::ActorModel<B> + AutodiffModule<B> + Display,
-        BM: ppo::model::BaselineModel<B> + AutodiffModule<B> + Display,
+        AM: ActorModel<B> + AutodiffModule<B> + Display,
+        BM: BaselineModel<B> + AutodiffModule<B> + Display,
         AO: Optimizer<AM, B>,
         BO: Optimizer<BM, B>,
     >(

@@ -1,4 +1,4 @@
-use super::super::ppo::model::ActorModel;
+use crate::rl_algorithm::base::model::ActorModel;
 use crate::burn_utils::distribution::Normal;
 use crate::burn_utils::{build_mlp, Sequence};
 use burn::nn::Tanh;

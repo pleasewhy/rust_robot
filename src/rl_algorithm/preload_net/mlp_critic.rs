@@ -1,4 +1,4 @@
-use super::super::ppo::model::BaselineModel;
+use crate::rl_algorithm::base::model::BaselineModel;
 use crate::burn_utils::{build_mlp, Sequence};
 use burn::prelude::*;
 

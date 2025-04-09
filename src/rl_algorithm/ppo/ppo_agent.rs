@@ -1,19 +1,19 @@
-use crate::burn_utils;
-use crate::rl_algorithm::memory::Memory;
-use crate::rl_algorithm::utils::UpdateInfo;
+use crate::rl_algorithm::base::config::TrainConfig;
+use crate::rl_algorithm::base::memory::Memory;
+use crate::rl_algorithm::base::rl_utils;
+use crate::rl_algorithm::base::rl_utils::UpdateInfo;
 use crate::rl_env::nd_vec::{
     booltensor2vec1, tensor2vec1, tensor2vec2, vec2tensor1, vec2tensor2, NdVec2,
 };
 
-use super::super::utils;
-use super::config::PPOTrainingConfig;
-use super::model::{ActorModel, BaselineModel};
+use crate::rl_algorithm::base::model::{ActorModel, BaselineModel};
 use burn::module::AutodiffModule;
 use burn::nn::loss::{MseLoss, Reduction};
 use burn::optim::Optimizer;
 use burn::prelude::Backend;
 use burn::tensor::backend::AutodiffBackend;
-use burn::tensor::{Distribution, Float, Tensor};
+use burn::tensor::Tensor;
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::marker::PhantomData;
 
@@ -21,19 +21,14 @@ pub struct PPO<B: Backend, AM: ActorModel<B>, BM: BaselineModel<B>> {
     backend: PhantomData<B>,
     actor: PhantomData<AM>,
     baseline_net: PhantomData<BM>,
-    // pub ppo_train_config: PPOTrainingConfig,
-    // pub ppo_train_config: PPOTrainingConfig,
 }
 
 impl<B: Backend, AM: ActorModel<B>, BM: BaselineModel<B>> PPO<B, AM, BM> {
     pub fn new() -> Self {
         Self {
-            // state: PhantomData,
-            // action: PhantomData,
             backend: PhantomData,
             actor: PhantomData,
             baseline_net: PhantomData,
-            // ppo_train_config,
         }
     }
 
@@ -57,24 +52,25 @@ impl<
         advantages: Tensor<B, 1>,
         old_logprobs: Tensor<B, 1>,
         actor_optimizer: &mut (impl Optimizer<AM, B> + Sized),
-        config: &PPOTrainingConfig,
+        config: &TrainConfig,
     ) -> (AM, f32) {
+        let ppo_config = &config.ppo_train_config;
         let normal = actor_net.forward(obs);
         let logprobs = normal.independent_log_prob(action);
         let ratio = (logprobs - old_logprobs).exp();
         let clipped_ratio = ratio
             .clone()
-            .clamp(1.0 - config.epsilon_clip, 1.0 + config.epsilon_clip);
+            .clamp(1.0 - ppo_config.epsilon_clip, 1.0 + ppo_config.epsilon_clip);
         let now_advantage = ratio * advantages.clone();
         let clip_advantage = clipped_ratio * advantages.clone();
         let actor_loss = -now_advantage.min_pair(clip_advantage).mean()
-            - normal.entropy().mean() * config.entropy_coef;
+            - normal.entropy().mean() * ppo_config.entropy_coef;
         return (
-            utils::update_parameters(
+            rl_utils::update_parameters(
                 actor_loss.clone(),
                 actor_net,
                 actor_optimizer,
-                config.learning_rate.into(),
+                ppo_config.learning_rate.into(),
             ),
             actor_loss.into_data().as_slice().unwrap()[0],
         );
@@ -85,16 +81,18 @@ impl<
         obs: Tensor<B, 2>,
         returns: Tensor<B, 1>,
         baseline_optimizer: &mut (impl Optimizer<BM, B> + Sized),
-        config: &PPOTrainingConfig,
+        config: &TrainConfig,
     ) -> (BM, f32) {
+        let ppo_config = &config.ppo_train_config;
+
         let pred = baseline_net.forward(obs);
         let baseline_loss = MseLoss.forward(returns.clone(), pred, Reduction::Mean);
         return (
-            utils::update_parameters(
+            rl_utils::update_parameters(
                 baseline_loss.clone(),
                 baseline_net,
                 baseline_optimizer,
-                config.learning_rate.into(),
+                ppo_config.learning_rate.into(),
             ),
             baseline_loss.into_data().as_slice().unwrap()[0],
         );
@@ -106,9 +104,10 @@ impl<
         memory: &Memory<B>,
         actor_optimizer: &mut (impl Optimizer<AM, B> + Sized),
         baseline_optimizer: &mut (impl Optimizer<BM, B> + Sized),
-        config: &PPOTrainingConfig,
+        config: &TrainConfig,
         device: &B::Device,
     ) -> Option<(AM, BM, UpdateInfo)> {
+        let ppo_config = &config.ppo_train_config;
         let obs = memory.obs();
         let action = memory.action();
         let rewards = memory.reward();
@@ -119,8 +118,8 @@ impl<
             &tensor2vec1(&old_values),
             &tensor2vec1(rewards),
             &booltensor2vec1(&not_dones),
-            config.gae_gamma,
-            config.reward_lambda,
+            ppo_config.gae_gamma,
+            ppo_config.reward_lambda,
             &device,
         )?;
 
@@ -137,19 +136,26 @@ impl<
             .into_data()
             .as_slice()
             .unwrap()[0];
-        let mut actor_loss = 0.0;
-        let mut baseline_loss = 0.0;
-        let mini_batch_size = config.mini_batch_size.min(memory.len());
+        let mut actor_loss: f32;
+        let mut baseline_loss: f32;
+        let mini_batch_size = ppo_config.mini_batch_size.min(memory.len());
+
+        let extra_mini_batch_map = HashMap::from([
+            ("old_logprobs", old_logprobs),
+            ("expected_values", expected_values),
+            ("advantages", advantages),
+        ]);
+
         let mini_batch_iter = memory.mini_batch_iter(
-            config.update_freq,
-            memory.len() / config.mini_batch_size + 1,
-            old_logprobs,
-            expected_values,
-            advantages,
+            ppo_config.update_freq,
+            memory.len() / mini_batch_size + 1,
+            Some(extra_mini_batch_map),
         );
-        for (mini_obs, mini_action, mini_old_logprobs, mini_expected_values, mini_advantages) in
-            mini_batch_iter
-        {
+        for (mini_obs, mini_action, mini_batch_map) in mini_batch_iter {
+            let mini_old_logprobs = mini_batch_map["old_logprobs"].clone();
+            let mini_expected_values = mini_batch_map["expected_values"].clone();
+            let mini_advantages = mini_batch_map["advantages"].clone();
+
             (actor_net, actor_loss) = Self::update_actor(
                 actor_net,
                 mini_obs.clone(),
@@ -208,6 +214,6 @@ pub(crate) fn get_gae<B: Backend>(
 
     return Some(GAEOutput {
         expected_returns: vec2tensor1(returns, device),
-        advantages: utils::normalize(vec2tensor1(advantages, device)),
+        advantages: rl_utils::normalize(vec2tensor1(advantages, device)),
     });
 }
