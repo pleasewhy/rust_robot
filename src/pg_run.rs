@@ -9,17 +9,14 @@ use crate::rl_algorithm::ppo::config::PPOTrainingConfig;
 use crate::rl_algorithm::preload_net::mlp_critic::{MLPCritic, MLPCriticConfig};
 use crate::rl_algorithm::preload_net::mlp_policy::{MLPPolicy, MLPPolicyConfig};
 use crate::rl_env::env::MujocoEnv;
-use burn::backend::wgpu::WgpuDevice;
-use burn::backend::{Autodiff, Wgpu};
+use burn::backend::libtorch::LibTorchDevice;
+use burn::backend::{Autodiff, LibTorch};
 use burn::grad_clipping::GradientClippingConfig;
 use burn::module::Module;
 use burn::record::{DefaultFileRecorder, FullPrecisionSettings};
 
-type MyBackend = Wgpu;
-type MyDevice = WgpuDevice;
-
 pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
-    let test_env = ENV::new(true);
+    let test_env = ENV::new(false);
 
     let ob_dim = test_env.get_obs_dim();
     let action_dim = test_env.get_action_dim();
@@ -42,11 +39,14 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
         resume_from_ckpt_path: None,
         // resume_from_ckpt_path: Some("./ckpt/iter200_mean_reward461.66412".to_string()),
         save_model_freq: 100,
+        mujoco_simulate_thread_num: 6,
         grad_clip: Some(GradientClippingConfig::Norm(1.0)),
         ..Default::default()
     };
 
-    let device = MyDevice::DefaultDevice;
+    type MyBackend = LibTorch;
+    type MyDevice = LibTorchDevice;
+    let device = MyDevice::Cuda(0);
     let actor_net =
         MLPPolicyConfig::new(action_dim, ob_dim, 3, 256).init::<Autodiff<MyBackend>>(&device);
     let baseline_net = MLPCriticConfig::new(ob_dim, 3, 256).init::<Autodiff<MyBackend>>(&device);

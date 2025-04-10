@@ -5,15 +5,12 @@ use crate::rl_algorithm::base::model::RlTrainAlgorithm;
 use crate::rl_algorithm::base::on_policy_runner;
 use crate::rl_algorithm::ppo::config::PPOTrainingConfig;
 use crate::rl_algorithm::ppo::ppo_agent::PPO;
-use crate::rl_algorithm::preload_net::mlp_critic::{MLPCritic, MLPCriticConfig};
-use crate::rl_algorithm::preload_net::mlp_policy::{MLPPolicy, MLPPolicyConfig};
+use crate::rl_algorithm::preload_net::mlp_critic::MLPCriticConfig;
+use crate::rl_algorithm::preload_net::mlp_policy::MLPPolicyConfig;
 use crate::rl_env::env::MujocoEnv;
-use burn::backend::wgpu::WgpuDevice;
-use burn::backend::{Autodiff, Wgpu};
+use burn::backend::libtorch::LibTorchDevice;
+use burn::backend::{Autodiff, LibTorch};
 use burn::grad_clipping::GradientClippingConfig;
-
-type MyBackend = Wgpu;
-type MyDevice = WgpuDevice;
 
 pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
     let test_env = ENV::new(true);
@@ -26,29 +23,32 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
         reward_lambda: 0.99,
         learning_rate: 1e-3,
         entropy_coef: 0.0,
-        epsilon_clip: 0.1,
+        epsilon_clip: 0.2,
         update_freq: 10,
-        mini_batch_size: 5000,
+        mini_batch_size: 10000,
     };
 
     let config = TrainConfig {
         ppo_train_config,
         n_env: 1000,
         traj_length: 1000,
-        video_log_freq: 100,
+        video_log_freq: 1,
         train_iter: 10000,
         ckpt_save_path: "./ckpt".to_string(),
         resume_from_ckpt_path: None,
         // resume_from_ckpt_path: Some("./ckpt/iter200_mean_reward461.66412".to_string()),
         save_model_freq: 100,
         grad_clip: Some(GradientClippingConfig::Norm(1.0)),
+        mujoco_simulate_thread_num: 6,
         ..Default::default()
     };
 
-    let device = MyDevice::DefaultDevice;
+    type MyBackend = LibTorch;
+    type MyDevice = LibTorchDevice;
+    let device = MyDevice::Cuda(0);
     let actor_net =
-        MLPPolicyConfig::new(action_dim, ob_dim, 3, 256).init::<Autodiff<MyBackend>>(&device);
-    let baseline_net = MLPCriticConfig::new(ob_dim, 3, 256).init::<Autodiff<MyBackend>>(&device);
+        MLPPolicyConfig::new(action_dim, ob_dim, 4, 256).init::<Autodiff<MyBackend>>(&device);
+    let baseline_net = MLPCriticConfig::new(ob_dim, 4, 256).init::<Autodiff<MyBackend>>(&device);
     println!("actor_net={}", actor_net);
     println!("baseline_net={}", baseline_net);
 

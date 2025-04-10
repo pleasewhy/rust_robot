@@ -65,7 +65,8 @@ impl<B: Backend> Memory<B> {
     ) -> MiniBatchIter<'a, B> {
         let mini_batch_size = self.len() / num_mini_batches;
         let random_indices_tensor = randperm::<B>(num_mini_batches * mini_batch_size, &self.device);
-        let random_indices_tensor = random_indices_tensor.split(mini_batch_size, 0);
+        let random_indices_tensor: Vec<Tensor<B, 1, Int>> =
+            random_indices_tensor.split(mini_batch_size, 0);
         MiniBatchIter {
             memory: self,
             current_step: 0,
@@ -97,7 +98,9 @@ impl<'a, B: Backend> Iterator for MiniBatchIter<'a, B> {
         }
 
         let i = self.current_step % self.num_mini_batches;
-
+        if i == 0 && self.current_step > self.num_mini_batches {
+            self.reset_random_indices_tensor();
+        }
         let indices_tensor = self.random_indices_tensor[i].clone();
 
         let obs = self.memory.obs.clone().select(0, indices_tensor.clone());
@@ -107,7 +110,7 @@ impl<'a, B: Backend> Iterator for MiniBatchIter<'a, B> {
         if let Some(extra_mini_batch_tensor) = self.extra_mini_batch_tensor.as_ref() {
             extra_tensor_map = extra_mini_batch_tensor
                 .iter()
-                .map(|(k, v)| (k.clone(), v.clone().select(0, indices_tensor.clone())))
+                .map(|(k, v)| (*k, v.clone().select(0, indices_tensor.clone())))
                 .collect();
         }
 

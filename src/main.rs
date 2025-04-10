@@ -33,6 +33,6 @@ fn main() {
     // };
     // println!("t={:?}", t);
 
-    // ppo_run::train_network::<HumanoidV4>();
-    pg_run::train_network::<HumanoidV4>();
+    ppo_run::train_network::<HumanoidV4>();
+    // pg_run::train_network::<HumanoidV4>();
 }

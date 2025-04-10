@@ -14,6 +14,7 @@ use std::{
     time::SystemTime,
 };
 
+use chrono_tz::Asia::Shanghai;
 use burn::grad_clipping::GradientClippingConfig;
 use burn::{
     module::AutodiffModule,
@@ -21,7 +22,7 @@ use burn::{
     record::{DefaultFileRecorder, FullPrecisionSettings},
     tensor::backend::AutodiffBackend,
 };
-use chrono::Local;
+use chrono::{Local, Utc};
 use tensorboard_rs::summary_writer::SummaryWriter;
 
 use crate::{
@@ -106,12 +107,12 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
             "{}_{}_{}",
             algo_name,
             env_name,
-            Local::now().format("%d-%m-%Y %H-%M")
+            Utc::now().with_timezone(&Shanghai).format("%m-%d %H:%M")
         );
         let writer = SummaryWriter::new(format!("./logdir/{}", &exp_name));
         let env_sampler: env_sampler::BatchEnvSample<E> = env_sampler::BatchEnvSample::new(
             config.traj_length,
-            4,
+            6,
             create_n_env::<E>(config.n_env),
         );
         Self {
