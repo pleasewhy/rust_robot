@@ -33,15 +33,14 @@ use crate::{
     },
 };
 
-use super::{config::TrainConfig, model::{ActorModel, BaselineModel}};
+use super::{
+    config::TrainConfig,
+    model::{ActorModel, BaselineModel, RlTrainAlgorithm},
+};
 
 use super::memory::Memory;
-use crate::rl_algorithm::policy_gradient::{self, config::PgTrainingConfig};
-use crate::rl_algorithm::ppo::{self, config::PPOTrainingConfig};
 
 use crate::rl_env::nd_vec::vec2tensor2;
-
-
 
 struct CheckPoint<B: Backend, R: Record<B>> {
     actor_net_ckpter: FileCheckpointer<R>,
@@ -101,9 +100,14 @@ fn batch_traj_to_memory<B: Backend>(
 }
 
 impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
-    pub fn new(device: B::Device, config: TrainConfig) -> Self {
+    pub fn new(device: B::Device, config: TrainConfig, algo_name: &str) -> Self {
         let env_name = std::any::type_name::<E>().rsplit("::").next().unwrap();
-        let exp_name = format!("ppo_{}_{}", env_name, Local::now().format("%d-%m-%Y %H-%M"));
+        let exp_name = format!(
+            "{}_{}_{}",
+            algo_name,
+            env_name,
+            Local::now().format("%d-%m-%Y %H-%M")
+        );
         let writer = SummaryWriter::new(format!("./logdir/{}", &exp_name));
         let env_sampler: env_sampler::BatchEnvSample<E> = env_sampler::BatchEnvSample::new(
             config.traj_length,
@@ -141,10 +145,12 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
     pub fn train_update<
         AM: ActorModel<B> + AutodiffModule<B> + Display,
         BM: BaselineModel<B> + AutodiffModule<B> + Display,
+        RlAlgo: RlTrainAlgorithm<B, AM, BM>,
     >(
         &mut self,
         mut actor_net: AM,
         mut baseline_net: BM,
+        mut train_algo: RlAlgo,
     ) {
         let mut actor_optimizer = AdamWConfig::new()
             .with_grad_clipping(self.config.grad_clip.clone())
@@ -174,16 +180,17 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
             );
 
             start = SystemTime::now();
-            (actor_net, baseline_net, update_info) = PPO::train(
-                actor_net,
-                baseline_net,
-                &memory,
-                &mut actor_optimizer,
-                &mut baseline_optimizer,
-                &self.config,
-                &self.device,
-            )
-            .unwrap();
+            (actor_net, baseline_net, update_info) = train_algo
+                .train(
+                    actor_net,
+                    baseline_net,
+                    &memory,
+                    &mut actor_optimizer,
+                    &mut baseline_optimizer,
+                    &self.config,
+                    &self.device,
+                )
+                .unwrap();
 
             if iter > 0 && iter % self.config.save_model_freq == 0 {
                 self.save_ckpt(

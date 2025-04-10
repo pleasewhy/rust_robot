@@ -2,9 +2,9 @@ use crate::rl_algorithm::base::config::TrainConfig;
 use crate::rl_algorithm::base::memory::Memory;
 use crate::rl_algorithm::base::rl_utils;
 use crate::rl_algorithm::base::rl_utils::UpdateInfo;
-use crate::rl_env::nd_vec::{booltensor2vec1, tensor2vec1, tensor2vec2, vec2tensor2, NdVec2};
+use crate::rl_env::nd_vec::{booltensor2vec1, tensor2vec1};
 
-use crate::rl_algorithm::base::model::{ActorModel, BaselineModel};
+use crate::rl_algorithm::base::model::{ActorModel, BaselineModel, RlTrainAlgorithm};
 use burn::module::AutodiffModule;
 use burn::nn::loss::{MseLoss, Reduction};
 use burn::optim::Optimizer;
@@ -19,22 +19,6 @@ pub struct PolicyGradient<B: Backend, AM: ActorModel<B>, BM: BaselineModel<B>> {
     backend: PhantomData<B>,
     actor: PhantomData<AM>,
     baseline_net: PhantomData<BM>,
-}
-
-impl<B: Backend, AM: ActorModel<B>, BM: BaselineModel<B>> PolicyGradient<B, AM, BM> {
-    pub fn new() -> Self {
-        Self {
-            backend: PhantomData,
-            actor: PhantomData,
-            baseline_net: PhantomData,
-        }
-    }
-
-    pub fn get_action(actor: AM, obs: NdVec2<f64>) -> NdVec2<f64> {
-        let obs = vec2tensor2(obs, &actor.devices()[0]);
-        let action = actor.forward(obs).sample();
-        return tensor2vec2(&action).to_f64();
-    }
 }
 
 impl<
@@ -87,8 +71,23 @@ impl<
             baseline_loss.into_data().as_slice().unwrap()[0],
         );
     }
+}
 
-    pub fn train(
+impl<
+        B: AutodiffBackend,
+        AM: ActorModel<B> + AutodiffModule<B> + Display,
+        BM: BaselineModel<B> + AutodiffModule<B> + Display,
+    > RlTrainAlgorithm<B, AM, BM> for PolicyGradient<B, AM, BM>
+{
+    fn new() -> Self {
+        Self {
+            backend: PhantomData,
+            actor: PhantomData,
+            baseline_net: PhantomData,
+        }
+    }
+    fn train(
+        &mut self,
         mut actor_net: AM,
         mut baseline_net: BM,
         memory: &Memory<B>,
@@ -121,7 +120,7 @@ impl<
         update_info.mean_q_val = expected_values.clone().mean().into_scalar().to_f32();
 
         let actor_loss: f32;
-        let baseline_loss: f32;
+        let mut baseline_loss: f32;
 
         (actor_net, actor_loss) = Self::update_actor(
             actor_net,
@@ -131,15 +130,18 @@ impl<
             actor_optimizer,
             config,
         );
-        (baseline_net, baseline_loss) = Self::update_baseline(
-            baseline_net,
-            obs.clone(),
-            expected_values,
-            baseline_optimizer,
-            config,
-        );
+        for _ in 0..pg_config.baseline_update_freq {
+            (baseline_net, baseline_loss) = Self::update_baseline(
+                baseline_net,
+                obs.clone(),
+                expected_values.clone(),
+                baseline_optimizer,
+                config,
+            );
+            update_info.critic_loss += baseline_loss;
+        }
+
         update_info.actor_loss += actor_loss;
-        update_info.critic_loss += baseline_loss;
 
         return Some((actor_net, baseline_net, update_info));
     }

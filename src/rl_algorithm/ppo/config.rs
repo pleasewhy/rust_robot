@@ -18,7 +18,7 @@ impl Default for PPOTrainingConfig {
             learning_rate: 1e-3,
             update_freq: 5,
             mini_batch_size: 1000,
-            entropy_coef: 0.2,
+            entropy_coef: 0.0,
         }
     }
 }

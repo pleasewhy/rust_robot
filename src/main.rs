@@ -3,6 +3,7 @@
 mod burn_utils;
 mod mujoco;
 mod ppo_run;
+mod pg_run;
 mod rl_algorithm;
 mod rl_env;
 
@@ -32,5 +33,6 @@ fn main() {
     // };
     // println!("t={:?}", t);
 
-    ppo_run::train_network::<HumanoidV4>();
+    // ppo_run::train_network::<HumanoidV4>();
+    pg_run::train_network::<HumanoidV4>();
 }
