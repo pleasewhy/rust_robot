@@ -11,6 +11,7 @@ use crate::rl_env::env::MujocoEnv;
 use burn::backend::libtorch::LibTorchDevice;
 use burn::backend::{Autodiff, LibTorch};
 use burn::grad_clipping::GradientClippingConfig;
+use burn::nn::{self, LinearConfig};
 
 pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
     let test_env = ENV::new(true);
@@ -25,18 +26,20 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
         entropy_coef: 0.0,
         epsilon_clip: 0.2,
         update_freq: 10,
-        mini_batch_size: 10000,
+        mini_batch_size: 50000,
     };
 
     let config = TrainConfig {
         ppo_train_config,
         n_env: 1000,
         traj_length: 1000,
-        video_log_freq: 1,
+        video_log_freq: 100,
         train_iter: 10000,
         ckpt_save_path: "./ckpt".to_string(),
-        resume_from_ckpt_path: None,
-        // resume_from_ckpt_path: Some("./ckpt/iter200_mean_reward461.66412".to_string()),
+        // resume_from_ckpt_path: None,
+        resume_from_ckpt_path: Some(
+            "ckpt/ppo_HumanoidV4_04-11 12:04/iter600_mean_reward1240.635".to_string(),
+        ),
         save_model_freq: 100,
         grad_clip: Some(GradientClippingConfig::Norm(1.0)),
         mujoco_simulate_thread_num: 6,
@@ -46,12 +49,11 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
     type MyBackend = LibTorch;
     type MyDevice = LibTorchDevice;
     let device = MyDevice::Cuda(0);
-    let actor_net =
-        MLPPolicyConfig::new(action_dim, ob_dim, 4, 256).init::<Autodiff<MyBackend>>(&device);
-    let baseline_net = MLPCriticConfig::new(ob_dim, 4, 256).init::<Autodiff<MyBackend>>(&device);
+    let mut actor_net =
+        MLPPolicyConfig::new(action_dim, ob_dim, 3, 256).init::<Autodiff<MyBackend>>(&device);
+    let baseline_net = MLPCriticConfig::new(ob_dim, 3, 256).init::<Autodiff<MyBackend>>(&device);
     println!("actor_net={}", actor_net);
     println!("baseline_net={}", baseline_net);
-
     let mut runner =
         on_policy_runner::OnPolicyRunner::<ENV, Autodiff<MyBackend>>::new(device, config, "ppo");
     let ppo_algo = PPO::new();

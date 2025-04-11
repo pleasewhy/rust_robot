@@ -13,6 +13,7 @@ use burn::backend::libtorch::LibTorchDevice;
 use burn::backend::{Autodiff, LibTorch};
 use burn::grad_clipping::GradientClippingConfig;
 use burn::module::Module;
+use burn::nn::{self, LinearConfig};
 use burn::record::{DefaultFileRecorder, FullPrecisionSettings};
 
 pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
@@ -36,8 +37,10 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
         video_log_freq: 100,
         train_iter: 10000,
         ckpt_save_path: "./ckpt".to_string(),
-        resume_from_ckpt_path: None,
-        // resume_from_ckpt_path: Some("./ckpt/iter200_mean_reward461.66412".to_string()),
+        // resume_from_ckpt_path: None,
+        resume_from_ckpt_path: Some(
+            "ckpt/ppo_HumanoidV4_04-11 12:04/iter600_mean_reward1240.635".to_string(),
+        ),
         save_model_freq: 100,
         mujoco_simulate_thread_num: 6,
         grad_clip: Some(GradientClippingConfig::Norm(1.0)),
@@ -47,12 +50,15 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
     type MyBackend = LibTorch;
     type MyDevice = LibTorchDevice;
     let device = MyDevice::Cuda(0);
-    let actor_net =
+    let mut actor_net =
         MLPPolicyConfig::new(action_dim, ob_dim, 3, 256).init::<Autodiff<MyBackend>>(&device);
     let baseline_net = MLPCriticConfig::new(ob_dim, 3, 256).init::<Autodiff<MyBackend>>(&device);
     println!("actor_net={}", actor_net);
     println!("baseline_net={}", baseline_net);
-
+    actor_net.logstd = LinearConfig::new(1, action_dim)
+        .with_bias(false)
+        .with_initializer(nn::Initializer::Zeros)
+        .init::<Autodiff<MyBackend>>(&device);
     let mut runner = on_policy_runner::OnPolicyRunner::<ENV, Autodiff<MyBackend>>::new(
         device,
         config,

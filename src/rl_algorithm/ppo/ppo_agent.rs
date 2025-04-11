@@ -147,7 +147,7 @@ impl<
 
         let mini_batch_iter = memory.mini_batch_iter(
             ppo_config.update_freq,
-            memory.len() / mini_batch_size + 1,
+            memory.len() / mini_batch_size,
             Some(extra_mini_batch_map),
         );
         for (mini_obs, mini_action, mini_batch_map) in mini_batch_iter {

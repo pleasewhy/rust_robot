@@ -1,11 +1,13 @@
 use burn::{
     module::Module,
+    nn::LinearConfig,
     optim::{decay::WeightDecayConfig, AdamConfig, Optimizer},
     prelude::Backend,
     record::{Record, Recorder},
     tensor::{cast::ToElement, Tensor, TensorData},
     train::checkpoint::{Checkpointer, FileCheckpointer},
 };
+use ndarray::MultiSliceArg;
 use std::{
     collections::HashMap,
     fmt::Display,
@@ -14,7 +16,6 @@ use std::{
     time::SystemTime,
 };
 
-use chrono_tz::Asia::Shanghai;
 use burn::grad_clipping::GradientClippingConfig;
 use burn::{
     module::AutodiffModule,
@@ -23,6 +24,7 @@ use burn::{
     tensor::backend::AutodiffBackend,
 };
 use chrono::{Local, Utc};
+use chrono_tz::Asia::Shanghai;
 use tensorboard_rs::summary_writer::SummaryWriter;
 
 use crate::{
@@ -286,6 +288,7 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         actor_net = actor_net
             .load_file(format!("{}/actor_net", path), &file_recorder, &self.device)
             .unwrap();
+        actor_net.reset_logstd(-0.4);
         baseline_net = baseline_net
             .load_file(
                 format!("{}/baseline_net", path),
