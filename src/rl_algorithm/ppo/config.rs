@@ -1,4 +1,6 @@
+use burn::config::Config;
 
+#[derive(Config, Debug)]
 pub struct PPOTrainingConfig {
     pub gae_gamma: f32,
     pub reward_lambda: f32,

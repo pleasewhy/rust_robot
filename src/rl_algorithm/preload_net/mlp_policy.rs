@@ -24,15 +24,6 @@ impl<B: Backend> ActorModel<B> for MLPPolicy<B> {
     fn std_mean(&self) -> Tensor<B, 1> {
         return self.logstd.weight.val().mean();
     }
-
-    fn reset_logstd(&mut self, logstd: f32) {
-        let logstd = self.logstd.clone();
-        self.logstd.weight = logstd.weight.map(|x| x.mul_scalar(0.95f32).require_grad());
-        println!(
-            "self.logstd.weight={:?}",
-            self.logstd.weight.val().to_data().to_vec::<f32>()
-        );
-    }
 }
 
 // impl<B: Backend> MLPPolicy<B> {

@@ -1,9 +1,10 @@
-use burn::grad_clipping::GradientClippingConfig;
+use burn::{config::Config, grad_clipping::GradientClippingConfig};
 
 use crate::rl_algorithm::{
     policy_gradient::config::PgTrainingConfig, ppo::config::PPOTrainingConfig,
 };
 
+#[derive(Config)]
 pub struct TrainConfig {
     pub ppo_train_config: PPOTrainingConfig,
     pub pg_train_config: PgTrainingConfig,

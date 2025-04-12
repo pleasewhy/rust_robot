@@ -11,7 +11,7 @@
   <size nkey="5" nuser_geom="1"/>
   <visual>
       <map fogend="5" fogstart="3"/>
-      <global offwidth="2560" offheight="1440" elevation="-20" azimuth="120"/>
+      <global offwidth="1280" offheight="720" elevation="-20" azimuth="120"/>
   </visual>
   <asset>
       <texture builtin="gradient" height="100" rgb1=".4 .5 .6" rgb2="0 0 0" type="skybox" width="100"/>

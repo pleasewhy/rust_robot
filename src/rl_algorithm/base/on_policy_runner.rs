@@ -1,4 +1,5 @@
 use burn::{
+    config::Config,
     module::Module,
     nn::LinearConfig,
     optim::{decay::WeightDecayConfig, AdamConfig, Optimizer},
@@ -12,6 +13,7 @@ use std::{
     collections::HashMap,
     fmt::Display,
     marker::PhantomData,
+    path::Path,
     sync::{Arc, Mutex},
     time::SystemTime,
 };
@@ -62,6 +64,7 @@ pub struct OnPolicyRunner<E: MujocoEnv + Send + 'static, B: AutodiffBackend> {
     env_sampler: env_sampler::BatchEnvSample<E>,
     config: TrainConfig,
     exp_name: String,
+    exp_base_path: String,
 }
 
 fn create_n_env<ENV: MujocoEnv>(n_env: usize) -> Vec<Arc<Mutex<ENV>>> {
@@ -117,6 +120,8 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
             6,
             create_n_env::<E>(config.n_env),
         );
+        let exp_base_path = format!("{}/{}", config.ckpt_save_path, exp_name);
+        std::fs::create_dir_all(&exp_base_path);
         Self {
             device: device,
             backend: PhantomData,
@@ -126,6 +131,7 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
             env_sampler: env_sampler,
             config: config,
             exp_name,
+            exp_base_path,
         }
     }
 
@@ -161,9 +167,10 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         let mut baseline_optimizer = AdamWConfig::new()
             .with_grad_clipping(self.config.grad_clip.clone())
             .init::<B, BM>();
+        self.config
+            .save(format!("{}/config.json", self.exp_base_path))
+            .expect("save config failed.");
 
-        // println!("actor_optimizer={:?}", actor_optimizer);
-        // println!("baseline_optimizer={:?}", baseline_optimizer);
         (actor_net, baseline_net, actor_optimizer, baseline_optimizer) =
             self.resume_from_ckpt(actor_net, baseline_net, actor_optimizer, baseline_optimizer);
         let mut update_info: super::rl_utils::UpdateInfo;
@@ -249,8 +256,8 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         baseline_opti: R4,
     ) {
         let path = format!(
-            "{}/{}/iter{}_mean_reward{}",
-            self.config.ckpt_save_path, self.exp_name, iter, mean_reward
+            "{}/iter{}_mean_reward{}",
+            self.exp_base_path, iter, mean_reward
         );
         let file_recorder = DefaultFileRecorder::<FullPrecisionSettings>::new();
 
@@ -288,7 +295,6 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         actor_net = actor_net
             .load_file(format!("{}/actor_net", path), &file_recorder, &self.device)
             .unwrap();
-        actor_net.reset_logstd(-0.4);
         baseline_net = baseline_net
             .load_file(
                 format!("{}/baseline_net", path),

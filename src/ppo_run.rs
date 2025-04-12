@@ -10,8 +10,9 @@ use crate::rl_algorithm::preload_net::mlp_policy::MLPPolicyConfig;
 use crate::rl_env::env::MujocoEnv;
 use burn::backend::libtorch::LibTorchDevice;
 use burn::backend::{Autodiff, LibTorch};
+use burn::config::Config;
 use burn::grad_clipping::GradientClippingConfig;
-use burn::nn::{self, LinearConfig};
+use burn::serde::Serialize;
 
 pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
     let test_env = ENV::new(true);
@@ -22,23 +23,23 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
     let ppo_train_config = PPOTrainingConfig {
         gae_gamma: 0.97,
         reward_lambda: 0.99,
-        learning_rate: 1e-3,
+        learning_rate: 1e-4,
         entropy_coef: 0.0,
-        epsilon_clip: 0.2,
+        epsilon_clip: 0.1,
         update_freq: 10,
         mini_batch_size: 50000,
     };
 
     let config = TrainConfig {
         ppo_train_config,
-        n_env: 1000,
+        n_env: 600,
         traj_length: 1000,
         video_log_freq: 100,
         train_iter: 10000,
         ckpt_save_path: "./ckpt".to_string(),
         // resume_from_ckpt_path: None,
         resume_from_ckpt_path: Some(
-            "ckpt/ppo_HumanoidV4_04-11 12:04/iter600_mean_reward1240.635".to_string(),
+            "ckpt/ppo_HumanoidV4_04-12 12:20/iter2200_mean_reward7565.19".to_string(),
         ),
         save_model_freq: 100,
         grad_clip: Some(GradientClippingConfig::Norm(1.0)),

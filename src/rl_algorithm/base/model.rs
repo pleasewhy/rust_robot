@@ -13,7 +13,6 @@ use burn::optim::Optimizer;
 pub trait ActorModel<B: Backend>: Module<B> {
     fn forward(&self, input: Tensor<B, 2>) -> Normal<B>;
     fn std_mean(&self) -> Tensor<B, 1>;
-    fn reset_logstd(&mut self, logstd: f32);
 }
 
 pub trait BaselineModel<B: Backend>: Module<B> {

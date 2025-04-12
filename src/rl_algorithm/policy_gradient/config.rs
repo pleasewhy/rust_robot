@@ -1,6 +1,7 @@
 // use crate::base::ElemType;
-use burn::grad_clipping::GradientClippingConfig;
+use burn::config::Config;
 
+#[derive(Config, Debug)]
 pub struct PgTrainingConfig {
     pub gae_gamma: f32,
     pub reward_lambda: f32,
