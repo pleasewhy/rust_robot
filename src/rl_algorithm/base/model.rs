@@ -10,6 +10,17 @@ use super::memory::Memory;
 use super::rl_utils::UpdateInfo;
 use burn::optim::Optimizer;
 
+pub trait ModelBasedNet<B: Backend>: Module<B> {
+    fn forward(&self, obs: Tensor<B, 2>, action: Tensor<B, 2>) -> Tensor<B, 2>;
+    fn loss(
+        &mut self,
+        obs: Tensor<B, 2>,
+        action: Tensor<B, 2>,
+        next_obs: Tensor<B, 2>,
+        reward: Tensor<B, 1>,
+    ) -> Tensor<B, 1>;
+}
+
 pub trait ActorModel<B: Backend>: Module<B> {
     fn forward(&self, input: Tensor<B, 2>) -> Normal<B>;
     fn std_mean(&self) -> Tensor<B, 1>;

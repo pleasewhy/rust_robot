@@ -20,6 +20,25 @@ pub struct Memory<B: Backend> {
 }
 
 impl<B: Backend> Memory<B> {
+    pub fn new_by_tensor(
+        obs: Tensor<B, 2>,
+        next_obs: Tensor<B, 2>,
+        action: Tensor<B, 2>,
+        reward: Tensor<B, 1>,
+        done: Tensor<B, 1, Bool>,
+    ) -> Self {
+        let len = obs.shape().dims[0];
+        let device = obs.device();
+        Self {
+            obs,
+            next_obs,
+            action,
+            reward,
+            done,
+            len,
+            device,
+        }
+    }
     pub fn new(
         obs_vec: Vec<f32>,
         next_obs_vec: Vec<f32>,
@@ -49,6 +68,14 @@ impl<B: Backend> Memory<B> {
             len: batch,
             device: device.clone(),
         }
+    }
+    pub fn merge(&mut self, other: &Self) {
+        self.obs = Tensor::cat(vec![self.obs.clone(), other.obs.clone()], 0);
+        self.next_obs = Tensor::cat(vec![self.next_obs.clone(), other.next_obs.clone()], 0);
+        self.action = Tensor::cat(vec![self.action.clone(), other.action.clone()], 0);
+        self.reward = Tensor::cat(vec![self.reward.clone(), other.reward.clone()], 0);
+        self.done = Tensor::cat(vec![self.done.clone(), other.done.clone()], 0);
+        self.len += other.len;
     }
     pub fn len(&self) -> usize {
         self.len

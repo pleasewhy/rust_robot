@@ -1,7 +1,7 @@
 use super::env::{MujocoEnv, StepInfo};
 use crate::mujoco;
 use lazy_static::lazy_static;
-use ndarray::Array3;
+use ndarray::{s, Array1, Array2, Array3, ArrayView2};
 use std::sync::{Arc, Mutex};
 
 lazy_static! {
@@ -45,6 +45,17 @@ impl MujocoEnv for InvertedPendulumV4 {
         self.terminated
     }
 
+    fn get_reward(
+        &self,
+        last_obs: ArrayView2<f64>,
+        obs: ArrayView2<f64>,
+        action: ArrayView2<f64>,
+    ) -> (Array1<f64>, Array1<bool>) {
+        let reward = Array1::<f64>::ones(obs.shape()[0]);
+        let terminated = obs.slice(s![0.., 1..2]).abs().flatten().map(|x| *x > 0.2);
+        return (reward, terminated);
+    }
+
     fn step(&mut self, action: &[f64]) -> StepInfo {
         self.data
             .get_ctrl()
@@ -57,7 +68,6 @@ impl MujocoEnv for InvertedPendulumV4 {
                 reward: 0f64,
                 terminated: true,
                 truncated: false,
-                early_stop: true,
                 image_obs: None,
             };
         }
@@ -81,7 +91,6 @@ impl MujocoEnv for InvertedPendulumV4 {
             reward: reward,
             terminated: terminated,
             truncated: false,
-            early_stop: false,
             image_obs: image_obs,
         };
         return step_info;

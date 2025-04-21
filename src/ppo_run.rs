@@ -24,9 +24,9 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
         gae_gamma: 0.97,
         reward_lambda: 0.99,
         learning_rate: 1e-4,
-        entropy_coef: 0.03,
+        entropy_coef: 0.01,
         epsilon_clip: 0.1,
-        update_freq: 10,
+        update_freq: 20,
         mini_batch_size: 50000,
     };
 

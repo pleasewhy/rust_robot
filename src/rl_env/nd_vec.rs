@@ -1,8 +1,11 @@
+use burn::module::Module;
 use burn::tensor::backend::Backend;
 use burn::tensor::Bool;
 use burn::tensor::Element;
 use burn::tensor::Tensor;
 use burn::tensor::TensorData;
+use ndarray::Array1;
+use ndarray::Array2;
 use std::ops::{Index, IndexMut};
 use std::usize;
 
@@ -178,6 +181,28 @@ pub fn vec2tensor2<B: Backend, T: Element + Zero + ToPrimitive>(
     return Tensor::<B, 2>::from_data(tensor_data, device);
 }
 
+pub fn ndarray2tensor1<B: Backend, T: Element + Zero + ToPrimitive>(
+    arr: Array1<T>,
+    device: &B::Device,
+) -> Tensor<B, 1> {
+    let shape = arr.shape().to_vec();
+    let vec = arr.into_raw_vec_and_offset().0;
+    // let vec = vec.iter().map(|x| *x as f32).collect::<Vec<f32>>();
+    let tensor_data = TensorData::new(vec, shape);
+    return Tensor::<B, 1>::from_data(tensor_data, device);
+}
+
+pub fn bool_ndarray2tensor1<B: Backend>(
+    arr: Array1<bool>,
+    device: &B::Device,
+) -> Tensor<B, 1, Bool> {
+    let shape = arr.shape().to_vec();
+    let vec = arr.into_raw_vec_and_offset().0;
+    // let vec = vec.iter().map(|x| *x as f32).collect::<Vec<f32>>();
+    let tensor_data = TensorData::new(vec, shape);
+    return Tensor::<B, 1, Bool>::from_data(tensor_data, device);
+}
+
 pub fn vec2tensor3<B: Backend, T: Element + Zero + ToPrimitive>(
     arr: NdVec3<T>,
     device: &B::Device,
@@ -190,6 +215,17 @@ pub fn vec2tensor3<B: Backend, T: Element + Zero + ToPrimitive>(
 pub fn tensor2vec2<B: Backend>(tensor: &Tensor<B, 2>) -> NdVec2<f32> {
     let vec = tensor.to_data().into_vec::<f32>().unwrap();
     return NdVec2::from_shape_vec(vec, tensor.shape().dims());
+}
+pub fn tensor2ndarray2<B: Backend>(tensor: &Tensor<B, 2>) -> Array2<f64> {
+    let vec = tensor
+        .to_data()
+        .into_vec::<f32>()
+        .unwrap()
+        .iter()
+        .map(|x| *x as f64)
+        .collect::<Vec<f64>>();
+    let shape: [usize; 2] = tensor.shape().dims();
+    return Array2::from_shape_vec(shape, vec).unwrap();
 }
 pub fn tensor2vec1<B: Backend>(tensor: &Tensor<B, 1>) -> Vec<f32> {
     let vec = tensor.to_data().into_vec::<f32>().unwrap();

@@ -5,10 +5,11 @@ use burn::{
     optim::{decay::WeightDecayConfig, AdamConfig, Optimizer},
     prelude::Backend,
     record::{Record, Recorder},
-    tensor::{cast::ToElement, Tensor, TensorData},
+    tensor::{cast::ToElement, Bool, Int, Tensor, TensorData},
     train::checkpoint::{Checkpointer, FileCheckpointer},
 };
 use ndarray::{ArrayView1, ArrayView2, MultiSliceArg};
+use ndarray_rand::RandomExt;
 use std::{
     collections::HashMap,
     fmt::Display,
@@ -34,28 +35,21 @@ use crate::{
     rl_env::{
         env::MujocoEnv,
         env_sampler::{self, BatchTrajInfo, FlattenBatchTrajInfo},
-        nd_vec::{tensor2vec2, NdVec2},
+        nd_vec::{bool_ndarray2tensor1, ndarray2tensor1, tensor2ndarray2, tensor2vec2, NdVec2},
     },
 };
 
 use super::{
     config::TrainConfig,
-    model::{ActorModel, BaselineModel, RlTrainAlgorithm},
+    model::{ActorModel, BaselineModel, ModelBasedNet, RlTrainAlgorithm},
+    rl_utils,
 };
 
 use super::memory::Memory;
 
 use crate::rl_env::nd_vec::vec2tensor2;
 
-struct CheckPoint<B: Backend, R: Record<B>> {
-    actor_net_ckpter: FileCheckpointer<R>,
-    baseline_net_ckpter: FileCheckpointer<R>,
-    actor_opti_ckpter: FileCheckpointer<R>,
-    baseline_opti_ckpter: FileCheckpointer<R>,
-    backend: PhantomData<B>,
-}
-
-pub struct OnPolicyRunner<E: MujocoEnv + Send + 'static, B: AutodiffBackend> {
+pub struct ModelBasedRunner<E: MujocoEnv + Send + 'static, B: AutodiffBackend> {
     device: B::Device,
     backend: PhantomData<B>,
     writer: SummaryWriter,
@@ -81,7 +75,7 @@ fn batch_traj_to_memory<B: Backend>(
 ) -> Memory<B> {
     return Memory::new(
         flatten_batch_traj.obs_vec,
-        Vec::new(),
+        flatten_batch_traj.next_obs_vec,
         flatten_batch_traj.action_vec,
         flatten_batch_traj.reward_vec,
         flatten_batch_traj.done_vec,
@@ -89,7 +83,7 @@ fn batch_traj_to_memory<B: Backend>(
     );
 }
 
-impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
+impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> ModelBasedRunner<E, B> {
     pub fn new(device: B::Device, config: TrainConfig, algo_name: &str) -> Self {
         let env_name = std::any::type_name::<E>().rsplit("::").next().unwrap();
         let exp_name = format!(
@@ -119,6 +113,17 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         }
     }
 
+    pub fn random_policy(&mut self, obs: NdVec2<f64>) -> NdVec2<f64> {
+        let arr = ndarray::Array1::random(
+            [obs.shape()[0] * self.eval_env.get_action_dim()],
+            ndarray_rand::rand_distr::Uniform::new(-1.0, 1.0),
+        );
+        return NdVec2::from_shape_vec(
+            arr.into_raw_vec_and_offset().0,
+            [obs.shape()[0], self.eval_env.get_action_dim()],
+        );
+    }
+
     pub fn sample_to_memory<AM: ActorModel<B>>(&mut self, actor: &AM, iter: usize) -> Memory<B> {
         let policy = |obs: NdVec2<f64>| {
             let action = actor.forward(vec2tensor2(obs, &self.device)).sample();
@@ -127,7 +132,7 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         let trajs = self.env_sampler.sample_n_trajectories(&policy);
         if iter % self.config.video_log_freq == 0 {
             self.eval_env.run_policy(
-                &format!("{}_iter{}", self.env_name, iter),
+                &format!("{}_iter{}.mp4", self.env_name, iter),
                 self.config.traj_length,
                 &policy,
             );
@@ -135,14 +140,92 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         return batch_traj_to_memory(trajs, &self.device);
     }
 
+    pub fn update_dynamic<MBN: ModelBasedNet<B> + AutodiffModule<B> + Display>(
+        &self,
+        mut dynamic_model: MBN,
+        memory: &Memory<B>,
+        dynamic_model_optimizer: &mut (impl Optimizer<MBN, B> + Sized),
+    ) -> (MBN, f32) {
+        let mut loss_f32 = 0.0;
+        let update_num = 10;
+        for _ in 0..update_num {
+            let loss = dynamic_model.loss(
+                memory.obs().clone(),
+                memory.action().clone(),
+                memory.next_obs().clone(),
+                memory.reward().clone(),
+            );
+            dynamic_model = rl_utils::update_parameters(
+                loss.clone(),
+                dynamic_model,
+                dynamic_model_optimizer,
+                self.config.ppo_train_config.learning_rate.into(),
+            );
+            loss_f32 += loss.clone().into_scalar().to_f32();
+        }
+        return (dynamic_model, loss_f32 / update_num as f32);
+    }
+
+    fn collect_memory_from_dynamic_model<
+        AM: ActorModel<B> + AutodiffModule<B> + Display,
+        MBN: ModelBasedNet<B> + AutodiffModule<B> + Display,
+    >(
+        &mut self,
+        batch_size: usize,
+        traj_length: usize,
+        actor: AM,
+        dynamic_model: MBN,
+    ) -> Memory<B> {
+        let mut obs = Vec::<f64>::new();
+        for i in 0..batch_size {
+            self.eval_env.reset();
+            let obs_tmp = self.eval_env.get_obs();
+            obs.extend_from_slice(obs_tmp.as_slice());
+        }
+        let mut obs = vec2tensor2(
+            NdVec2::from_shape_vec(obs, [batch_size, self.eval_env.get_obs_dim()]),
+            &self.device,
+        );
+        let mut obs_vec: Vec<Tensor<B, 2>> = Vec::with_capacity(traj_length);
+        let mut next_obs_vec: Vec<Tensor<B, 2>> = Vec::with_capacity(traj_length);
+        let mut action_vec: Vec<Tensor<B, 2>> = Vec::with_capacity(traj_length);
+        let mut reward_vec: Vec<Tensor<B, 1>> = Vec::with_capacity(traj_length);
+        let mut done_vec: Vec<Tensor<B, 1, Bool>> = Vec::with_capacity(traj_length);
+        for i in 0..traj_length {
+            let action: Tensor<B, 2> = actor.forward(obs.clone()).sample();
+            let next_obs = dynamic_model.forward(obs.clone(), action.clone());
+            obs_vec.push(obs.clone());
+            next_obs_vec.push(next_obs.clone());
+            action_vec.push(action.clone());
+
+            let (reward, dones) = self.eval_env.get_reward(
+                tensor2ndarray2(&obs).view(),
+                tensor2ndarray2(&next_obs).view(),
+                tensor2ndarray2(&action).view(),
+            );
+            let reward: Tensor<B, 1> = ndarray2tensor1(reward, &self.device);
+            let dones: Tensor<B, 1, Bool> = bool_ndarray2tensor1(dones, &self.device);
+            reward_vec.push(reward.clone());
+            done_vec.push(dones);
+            obs = next_obs;
+        }
+        let obs = Tensor::cat(obs_vec, 0);
+        let next_obs = Tensor::cat(next_obs_vec, 0);
+        let action = Tensor::cat(action_vec, 0);
+        let reward = Tensor::cat(reward_vec, 0);
+        let done = Tensor::cat(done_vec, 0);
+        return Memory::new_by_tensor(obs, next_obs, action, reward, done);
+    }
     pub fn train_update<
         AM: ActorModel<B> + AutodiffModule<B> + Display,
         BM: BaselineModel<B> + AutodiffModule<B> + Display,
+        MBN: ModelBasedNet<B> + AutodiffModule<B> + Display,
         RlAlgo: RlTrainAlgorithm<B, AM, BM>,
     >(
         &mut self,
         mut actor_net: AM,
         mut baseline_net: BM,
+        mut dynamic_model: MBN,
         mut train_algo: RlAlgo,
     ) {
         let mut actor_optimizer = AdamWConfig::new()
@@ -151,6 +234,9 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         let mut baseline_optimizer = AdamWConfig::new()
             .with_grad_clipping(self.config.grad_clip.clone())
             .init::<B, BM>();
+        let mut dynamic_model_optimizer = AdamWConfig::new()
+            .with_grad_clipping(self.config.grad_clip.clone())
+            .init::<B, MBN>();
         self.config
             .save(format!("{}/config.json", self.exp_base_path))
             .expect("save config failed.");
@@ -162,7 +248,7 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         for iter in 0..self.config.train_iter {
             log_info.clear();
             let mut start = SystemTime::now();
-            let memory = self.sample_to_memory(&actor_net, iter);
+            let mut memory = self.sample_to_memory(&actor_net, iter);
 
             let mean_reward =
                 memory.reward().clone().sum().into_scalar().to_f32() / self.config.n_env as f32;
@@ -172,7 +258,25 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
                 "collect_time".to_string(),
                 start.elapsed().unwrap().as_millis() as f32,
             );
+            let dynamic_loss: f32;
+            (dynamic_model, dynamic_loss) =
+                self.update_dynamic(dynamic_model, &memory, &mut dynamic_model_optimizer);
 
+            if iter >= 10000 {
+                start = SystemTime::now();
+
+                let dynamic_model_memory = self.collect_memory_from_dynamic_model(
+                    self.config.n_env * 50,
+                    10,
+                    actor_net.clone(),
+                    dynamic_model.clone(),
+                );
+                memory.merge(&dynamic_model_memory);
+                log_info.insert(
+                    "dynamic_model_collect_time".to_string(),
+                    start.elapsed().unwrap().as_millis() as f32,
+                );
+            }
             start = SystemTime::now();
             (actor_net, baseline_net, update_info) = train_algo
                 .train(
@@ -202,6 +306,7 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
                 start.elapsed().unwrap().as_millis() as f32,
             );
             log_info.insert("actor_loss".to_string(), update_info.actor_loss);
+            log_info.insert("dynamic_net_loss".to_string(), dynamic_loss);
             log_info.insert("critic_loss".to_string(), update_info.critic_loss);
             log_info.insert("mean_q_val".to_string(), update_info.mean_q_val);
             log_info.insert(

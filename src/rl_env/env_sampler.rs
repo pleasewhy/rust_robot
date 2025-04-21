@@ -18,7 +18,8 @@ pub struct BatchEnvSample<E: MujocoEnv + Send> {
 
 #[derive(Debug)]
 pub struct BatchTrajInfo {
-    pub observation: NdVec3<f32>,
+    pub obs: NdVec3<f32>,
+    pub next_obs: NdVec3<f32>,
     pub reward: NdVec2<f32>,
     pub action: NdVec3<f32>,
     pub terminal: NdVec2<u8>,
@@ -28,6 +29,7 @@ pub struct FlattenBatchTrajInfo {
     pub obs_dim: usize,
     pub action_dim: usize,
     pub obs_vec: Vec<f32>,
+    pub next_obs_vec: Vec<f32>,
     pub action_vec: Vec<f32>,
     pub reward_vec: Vec<f32>,
     pub done_vec: Vec<bool>,
@@ -115,7 +117,8 @@ impl<E: MujocoEnv + Send + 'static> BatchEnvSample<E> {
         let obs_dim = self.envs[0].lock().unwrap().get_obs_dim();
         let action_dim = self.envs[0].lock().unwrap().get_action_dim();
         let batch_traj_info = Arc::new(Mutex::new(BatchTrajInfo {
-            observation: NdVec3::<f32>::zeros((self.batch_size, self.single_traj_len, obs_dim)),
+            obs: NdVec3::<f32>::zeros((self.batch_size, self.single_traj_len, obs_dim)),
+            next_obs: NdVec3::<f32>::zeros((self.batch_size, self.single_traj_len, obs_dim)),
             reward: NdVec2::<f32>::zeros((self.batch_size, self.single_traj_len)),
             action: NdVec3::<f32>::zeros((self.batch_size, self.single_traj_len, action_dim)),
             terminal: NdVec2::<u8>::zeros((self.batch_size, self.single_traj_len)),
@@ -162,6 +165,7 @@ impl<E: MujocoEnv + Send + 'static> BatchEnvSample<E> {
         let num_element = batch_size * traj_length;
 
         let mut obs_vec = Vec::<f32>::with_capacity(num_element);
+        let mut next_obs_vec = Vec::<f32>::with_capacity(num_element);
         let mut action_vec = Vec::<f32>::with_capacity(num_element);
         let mut reward_vec = Vec::<f32>::with_capacity(num_element);
         let mut done_vec = Vec::<bool>::with_capacity(num_element);
@@ -169,7 +173,8 @@ impl<E: MujocoEnv + Send + 'static> BatchEnvSample<E> {
             for t in 0..batch_traj.reward.shape()[1] {
                 let shape = (b, t);
                 let done = *batch_traj.terminal.get(shape).unwrap() > 0;
-                obs_vec.extend_from_slice(batch_traj.observation.slice_mut(shape).unwrap());
+                obs_vec.extend_from_slice(batch_traj.obs.slice_mut(shape).unwrap());
+                next_obs_vec.extend_from_slice(batch_traj.next_obs.slice_mut(shape).unwrap());
                 action_vec.extend_from_slice(batch_traj.action.slice_mut(shape).unwrap());
                 reward_vec.push(*batch_traj.reward.get(shape).unwrap());
                 done_vec.push(done);
@@ -183,6 +188,7 @@ impl<E: MujocoEnv + Send + 'static> BatchEnvSample<E> {
             obs_dim,
             action_dim,
             obs_vec,
+            next_obs_vec,
             action_vec,
             reward_vec,
             done_vec,
@@ -212,14 +218,28 @@ impl<E: MujocoEnv + Send> StepTask<E> {
 
         let now_shape = (self.env_idx, self.in_traj_index);
         assert_eq!(batch_traj_info.action.shape()[2], self.actions.shape()[1]);
-        assert_eq!(batch_traj_info.observation.shape()[2], obs.len());
+        assert_eq!(batch_traj_info.obs.shape()[2], obs.len());
         // println!("step_info={:?}", step_info);
         batch_traj_info
-            .observation
+            .obs
             .slice_mut(now_shape)
             .unwrap()
             .copy_from_slice(
                 obs.as_slice()
+                    .iter()
+                    .map(|x| *x as f32)
+                    .collect::<Vec<f32>>()
+                    .as_slice(),
+            );
+
+        batch_traj_info
+            .next_obs
+            .slice_mut(now_shape)
+            .unwrap()
+            .copy_from_slice(
+                step_info
+                    .obs
+                    .as_slice()
                     .iter()
                     .map(|x| *x as f32)
                     .collect::<Vec<f32>>()

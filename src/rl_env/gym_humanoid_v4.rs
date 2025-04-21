@@ -2,8 +2,10 @@ use super::env::{MujocoEnv, StepInfo};
 use crate::mujoco;
 use lazy_static::lazy_static;
 use ndarray::{self as nd, s, Array1, Array2, Array3, Axis};
-use ndarray_rand::rand_distr::Uniform;
+use ndarray_rand::rand_distr::{Normal, Uniform};
 use ndarray_rand::RandomExt;
+use rand::random_ratio;
+use std::collections::vec_deque::VecDeque;
 use std::sync::{Arc, Mutex};
 
 lazy_static! {
@@ -28,6 +30,8 @@ pub struct HumanoidV4 {
     init_qpos: Array2<f64>,
     init_qvel: Array2<f64>,
     init_xquat: Array2<f64>,
+    last_n_qpos: VecDeque<Array2<f64>>,
+    last_n_qvel: VecDeque<Array2<f64>>,
 }
 
 unsafe impl Send for HumanoidV4 {}
@@ -35,19 +39,31 @@ unsafe impl Sync for HumanoidV4 {}
 
 impl MujocoEnv for HumanoidV4 {
     fn reset(&mut self) {
-        let noise_low = -self.reset_noise_scale;
-        let noise_high = self.reset_noise_scale;
+        let noise_mean = 0.0;
+        let noise_std = self.reset_noise_scale;
         let qpos_shape = self.init_qpos.shape();
         let qvel_shape = self.init_qvel.shape();
-        let q_pos_noise = &self.init_qpos
+        let mut init_qpos = self
+            .last_n_qpos
+            .pop_front()
+            .unwrap_or_else(|| self.init_qpos.clone());
+        let mut init_qvel = self
+            .last_n_qvel
+            .pop_front()
+            .unwrap_or_else(|| self.init_qvel.clone());
+        if self.is_render || random_ratio(1, 3) {
+            init_qpos = self.init_qpos.clone();
+            init_qvel = self.init_qvel.clone();
+        }
+        let q_pos_noise = &init_qpos
             + Array2::random(
                 (qpos_shape[0], qpos_shape[1]),
-                Uniform::new(noise_low, noise_high),
+                Normal::new(noise_mean, noise_std).unwrap(),
             );
-        let q_vel_noise = &self.init_qvel
+        let q_vel_noise = &init_qvel
             + Array2::random(
                 (qvel_shape[0], qvel_shape[1]),
-                Uniform::new(noise_low, noise_high),
+                Normal::new(noise_mean, noise_std).unwrap(),
             );
         self.data
             .get_qpos()
@@ -59,6 +75,10 @@ impl MujocoEnv for HumanoidV4 {
             .as_slice_mut()
             .unwrap()
             .copy_from_slice(q_vel_noise.as_slice().unwrap());
+        self.last_n_qvel.clear();
+        self.last_n_qpos.clear();
+        self.last_n_qvel.push_back(self.init_qvel.clone());
+        self.last_n_qpos.push_back(self.init_qpos.clone());
         unsafe {
             mujoco::ffi::mj_forward(self.model.get_ref(), self.data.get_mut());
         };
@@ -91,7 +111,6 @@ impl MujocoEnv for HumanoidV4 {
                 reward: 0f64,
                 terminated: true,
                 truncated: false,
-                early_stop: true,
                 image_obs: None,
             };
         }
@@ -110,6 +129,12 @@ impl MujocoEnv for HumanoidV4 {
             mujoco::ffi::mj_rnePostConstraint(self.model.get_ref(), self.data.get_mut());
             mujoco::ffi::mj_sensorAcc(self.model.get_ref(), self.data.get_mut());
         };
+        self.last_n_qvel.push_back(self.data.get_qvel().to_owned());
+        self.last_n_qpos.push_back(self.data.get_qpos().to_owned());
+        if self.last_n_qvel.len() > 50 {
+            self.last_n_qvel.pop_front();
+            self.last_n_qpos.pop_front();
+        }
         let xy_position_after = self.mass_center();
         let xy_velocity = (&xy_position_after - &xy_position_before)
             / (self.model.opt.timestep * self.skip_steps as f64);
@@ -140,7 +165,6 @@ impl MujocoEnv for HumanoidV4 {
             reward: reward,
             terminated: self.terminated,
             truncated: false,
-            early_stop: false,
             image_obs: image_obs,
         };
         return step_info;
@@ -184,6 +208,8 @@ impl HumanoidV4 {
             init_qpos,
             init_qvel,
             init_xquat,
+            last_n_qvel: VecDeque::with_capacity(50),
+            last_n_qpos: VecDeque::with_capacity(50),
         };
     }
 

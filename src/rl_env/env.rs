@@ -1,5 +1,5 @@
 use crate::mujoco::Render;
-use ndarray::{self as nd, Array1, Array2, Array3};
+use ndarray::{self as nd, Array1, Array2, Array3, ArrayView2};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use video_rs::encode::Settings;
@@ -13,7 +13,6 @@ pub struct StepInfo {
     pub reward: f64,
     pub terminated: bool,
     pub truncated: bool,
-    pub early_stop: bool,
     pub image_obs: Option<Array3<u8>>,
 }
 
@@ -24,8 +23,21 @@ pub trait MujocoEnv {
     fn get_action_dim(&self) -> usize;
     fn step(&mut self, action: &[f64]) -> StepInfo;
     fn get_render(&self) -> Option<&Render>;
-    fn get_fps(&self) -> usize;
-    // fn get_obs(&self, arr: &mut [f64]);
+    fn get_fps(&self) -> usize {
+        return 30;
+    }
+    fn get_reward(
+        &self,
+        last_obs: ArrayView2<f64>,
+        obs: ArrayView2<f64>,
+        action: ArrayView2<f64>,
+    ) -> (Array1<f64>, Array1<bool>) {
+        let shape = [last_obs.shape()[0]];
+        return (
+            Array1::<f64>::zeros(shape),
+            Array1::<bool>::from_elem(shape, true),
+        );
+    }
     fn get_obs(&self) -> Vec<f64>;
     fn is_terminated(&self) -> bool;
 
@@ -52,24 +64,27 @@ pub trait MujocoEnv {
         }
     }
 
-    fn run_policy<F>(&mut self, filename: &String, n_step: usize, policy: &F)
+    fn run_policy<F>(&mut self, filename_prefix: &String, n_step: usize, policy: &F)
     where
         F: Fn(NdVec2<f64>) -> NdVec2<f64>,
     {
         self.reset();
         let obs_dim = self.get_obs_dim();
+        let mut reward: f64 = 0.0;
         let mut vec_image_obs = vec![];
         for _ in 0..n_step {
             let obs = NdVec2::from_shape_vec(self.get_obs(), [1, obs_dim]);
             // println!("{:?}", obs);
             let action = policy(obs);
             let info = self.step(action.row(0).unwrap());
+            reward += info.reward;
             vec_image_obs.push(info.image_obs.unwrap());
             if info.terminated {
                 break;
             }
         }
+        let filename = format!("{}_reward_{:.2}.mp4", filename_prefix, reward);
         println!("{}", filename);
-        self.save_video(filename, vec_image_obs);
+        self.save_video(&filename, vec_image_obs);
     }
 }

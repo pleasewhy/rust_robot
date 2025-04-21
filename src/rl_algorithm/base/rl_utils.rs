@@ -5,6 +5,7 @@ use burn::tensor::cast::ToElement;
 use burn::tensor::{Int, Tensor};
 use burn::LearningRate;
 
+use crate::rl_env::env::MujocoEnv;
 use crate::rl_env::nd_vec::vec2tensor1;
 
 pub(crate) fn update_parameters<B: AutodiffBackend, M: AutodiffModule<B>>(
