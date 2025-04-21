@@ -8,6 +8,7 @@ mod rl_algorithm;
 mod rl_env;
 
 use rl_env::gym_humanoid_v4::HumanoidV4;
+use rl_env::inverted_pendulum_v4::InvertedPendulumV4;
 
 #[derive(Debug)]
 struct Test {
@@ -33,6 +34,6 @@ fn main() {
     // };
     // println!("t={:?}", t);
 
-    ppo_run::train_network::<HumanoidV4>();
+    ppo_run::train_network::<InvertedPendulumV4>();
     // pg_run::train_network::<HumanoidV4>();
 }

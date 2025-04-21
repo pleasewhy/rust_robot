@@ -24,7 +24,7 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
         gae_gamma: 0.97,
         reward_lambda: 0.99,
         learning_rate: 1e-4,
-        entropy_coef: 0.0,
+        entropy_coef: 0.03,
         epsilon_clip: 0.1,
         update_freq: 10,
         mini_batch_size: 50000,
@@ -37,10 +37,10 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
         video_log_freq: 100,
         train_iter: 10000,
         ckpt_save_path: "./ckpt".to_string(),
-        // resume_from_ckpt_path: None,
-        resume_from_ckpt_path: Some(
-            "ckpt/ppo_HumanoidV4_04-12 12:20/iter2200_mean_reward7565.19".to_string(),
-        ),
+        resume_from_ckpt_path: None,
+        // resume_from_ckpt_path: Some(
+        //     "ckpt/ppo_HumanoidV4_04-12 19:08/iter300_mean_reward9792.91".to_string(),
+        // ),
         save_model_freq: 100,
         grad_clip: Some(GradientClippingConfig::Norm(1.0)),
         mujoco_simulate_thread_num: 6,

@@ -27,6 +27,7 @@ pub struct HumanoidV4 {
     skip_steps: usize,
     init_qpos: Array2<f64>,
     init_qvel: Array2<f64>,
+    init_xquat: Array2<f64>,
 }
 
 unsafe impl Send for HumanoidV4 {}
@@ -117,6 +118,8 @@ impl MujocoEnv for HumanoidV4 {
         let forward_reward = self.forward_reward_weight * x_velocity;
         let healthy_reward = self.cal_healthy_reward();
         let rewards = forward_reward + healthy_reward;
+        // let rewards =
+        // forward_reward + healthy_reward + self.orientation_reward() + self.height_reward();
 
         let reward = rewards - ctrl_cost;
 
@@ -161,6 +164,7 @@ impl HumanoidV4 {
         }
         let init_qpos = data.get_qpos().to_owned();
         let init_qvel = data.get_qvel().to_owned();
+        let init_xquat = data.get_xquat().to_owned();
 
         return Self {
             model,
@@ -179,12 +183,53 @@ impl HumanoidV4 {
             skip_steps: 5,
             init_qpos,
             init_qvel,
+            init_xquat,
         };
     }
 
     fn ctrl_cost(&self) -> f64 {
         let control_cost = self.ctrl_cost_weight * self.data.get_ctrl().pow2().sum();
         return control_cost;
+    }
+
+    fn orientation_reward(&self) -> f64 {
+        //   BODY 1: torso
+        //   BODY 2: head
+        //   BODY 3: waist_lower
+        //   BODY 4: pelvis
+        //   BODY 5: thigh_right
+        //   BODY 6: shin_right
+        //   BODY 7: foot_right
+        //   BODY 8: thigh_left
+        //   BODY 9: shin_left
+        //   BODY 10: foot_left
+        //   BODY 11: upper_arm_right
+        //   BODY 12: lower_arm_right
+        //   BODY 13: hand_right
+        //   BODY 14: upper_arm_left
+        //   BODY 15: lower_arm_left
+        //   BODY 16: hand_left
+        // println!("shape={:?}", self.data.get_xquat().shape());
+
+        let bodies_indics = s![1..14, 0..3];
+        let xquat = self.data.get_xquat();
+        let torso_quat = xquat.slice(bodies_indics);
+        let init_quat = self.init_xquat.slice(bodies_indics);
+        // assert_eq!(torso_quat.shape()[0], 4);
+        // assert_eq!(init_quat.shape()[0], 4);
+        let diff_torso_quat = (&torso_quat - &init_quat).pow2().sqrt().sum();
+        return (5.0 - diff_torso_quat).max(0.0);
+    }
+
+    fn height_reward(&self) -> f64 {
+        let torso_height_id = 2;
+        let qpos = self.data.get_qpos();
+        let torso_height = qpos.row(torso_height_id)[0];
+        let init_torso_height = self.init_qpos.row(torso_height_id)[0];
+        let diff_torso_height = (torso_height - init_torso_height).abs();
+        let reward = 1.0 - diff_torso_height;
+
+        return reward.max(0.0);
     }
 
     fn extend_from_obs(&self, vec: &mut Vec<f64>) {

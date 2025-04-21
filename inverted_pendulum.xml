@@ -8,7 +8,7 @@
 	</default>
 	<option gravity="0 0 -9.81" integrator="RK4" timestep="0.02"/>
 	<visual>
-		<global offwidth="2560" offheight="1440" elevation="-20" azimuth="120"/>
+		<global offwidth="1280" offheight="720" elevation="-20" azimuth="120"/>
 	  </visual>
 	<size nstack="3000"/>
 	<worldbody>

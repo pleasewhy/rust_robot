@@ -11,6 +11,7 @@ use super::rl_utils;
 
 pub struct Memory<B: Backend> {
     obs: Tensor<B, 2>,
+    next_obs: Tensor<B, 2>,
     action: Tensor<B, 2>,
     reward: Tensor<B, 1>,
     done: Tensor<B, 1, Bool>,
@@ -21,6 +22,7 @@ pub struct Memory<B: Backend> {
 impl<B: Backend> Memory<B> {
     pub fn new(
         obs_vec: Vec<f32>,
+        next_obs_vec: Vec<f32>,
         action_vec: Vec<f32>,
         reward_vec: Vec<f32>,
         done_vec: Vec<bool>,
@@ -30,11 +32,17 @@ impl<B: Backend> Memory<B> {
         let obs_dim = obs_vec.len() / batch;
         let action_dim = action_vec.len() / batch;
         let obs = Tensor::from_data(TensorData::new(obs_vec, [batch, obs_dim]), device);
-        let action = Tensor::from_data(TensorData::new(action_vec, [batch, action_dim]), device);
+        let mut next_obs: Tensor<B, 2> = Tensor::zeros([0, 0], device);
+        if next_obs_vec.len() > 0 {
+            next_obs = Tensor::from_data(TensorData::new(next_obs_vec, [batch, obs_dim]), device);
+        }
+        let action: Tensor<B, 2> =
+            Tensor::from_data(TensorData::new(action_vec, [batch, action_dim]), device);
         let reward = Tensor::from_data(TensorData::new(reward_vec, [batch]), device);
         let done = Tensor::from_data(TensorData::new(done_vec, [batch]), device);
         Self {
             obs,
+            next_obs,
             action,
             reward,
             done,
@@ -47,6 +55,9 @@ impl<B: Backend> Memory<B> {
     }
     pub fn obs(&self) -> &Tensor<B, 2> {
         &self.obs
+    }
+    pub fn next_obs(&self) -> &Tensor<B, 2> {
+        &self.next_obs
     }
     pub fn action(&self) -> &Tensor<B, 2> {
         &self.action

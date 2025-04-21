@@ -8,7 +8,7 @@ use burn::{
     tensor::{cast::ToElement, Tensor, TensorData},
     train::checkpoint::{Checkpointer, FileCheckpointer},
 };
-use ndarray::MultiSliceArg;
+use ndarray::{ArrayView1, ArrayView2, MultiSliceArg};
 use std::{
     collections::HashMap,
     fmt::Display,
@@ -33,7 +33,7 @@ use crate::{
     rl_algorithm::ppo::ppo_agent::PPO,
     rl_env::{
         env::MujocoEnv,
-        env_sampler::{self, BatchTrajInfo},
+        env_sampler::{self, BatchTrajInfo, FlattenBatchTrajInfo},
         nd_vec::{tensor2vec2, NdVec2},
     },
 };
@@ -76,33 +76,17 @@ fn create_n_env<ENV: MujocoEnv>(n_env: usize) -> Vec<Arc<Mutex<ENV>>> {
 }
 
 fn batch_traj_to_memory<B: Backend>(
-    mut batch_traj: BatchTrajInfo,
+    flatten_batch_traj: FlattenBatchTrajInfo,
     device: &B::Device,
 ) -> Memory<B> {
-    let batch_size = batch_traj.reward.shape()[0];
-    let traj_length = batch_traj.reward.shape()[1];
-    let num_element = batch_size * traj_length;
-
-    let mut obs_vec = Vec::<f32>::with_capacity(num_element);
-    let mut action_vec = Vec::<f32>::with_capacity(num_element);
-    let mut reward_vec = Vec::<f32>::with_capacity(num_element);
-    let mut done_vec = Vec::<bool>::with_capacity(num_element);
-
-    for b in 0..batch_traj.reward.shape()[0] {
-        for t in 0..batch_traj.reward.shape()[1] {
-            let shape = (b, t);
-            let done = *batch_traj.terminal.get(shape).unwrap() > 0;
-            obs_vec.extend_from_slice(batch_traj.observation.slice_mut(shape).unwrap());
-            action_vec.extend_from_slice(batch_traj.action.slice_mut(shape).unwrap());
-            reward_vec.push(*batch_traj.reward.get(shape).unwrap());
-            done_vec.push(done);
-
-            if done {
-                break;
-            }
-        }
-    }
-    return Memory::new(obs_vec, action_vec, reward_vec, done_vec, device);
+    return Memory::new(
+        flatten_batch_traj.obs_vec,
+        Vec::new(),
+        flatten_batch_traj.action_vec,
+        flatten_batch_traj.reward_vec,
+        flatten_batch_traj.done_vec,
+        device,
+    );
 }
 
 impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
@@ -128,8 +112,8 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
             writer,
             env_name: env_name.to_string(),
             eval_env: E::new(true),
-            env_sampler: env_sampler,
-            config: config,
+            env_sampler,
+            config,
             exp_name,
             exp_base_path,
         }

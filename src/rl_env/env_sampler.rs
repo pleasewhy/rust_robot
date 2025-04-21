@@ -3,7 +3,6 @@ use std::{
     time::SystemTime,
 };
 
-
 use super::{
     env::MujocoEnv,
     nd_vec::{NdVec2, NdVec3},
@@ -23,6 +22,21 @@ pub struct BatchTrajInfo {
     pub reward: NdVec2<f32>,
     pub action: NdVec3<f32>,
     pub terminal: NdVec2<u8>,
+}
+
+pub struct FlattenBatchTrajInfo {
+    pub obs_dim: usize,
+    pub action_dim: usize,
+    pub obs_vec: Vec<f32>,
+    pub action_vec: Vec<f32>,
+    pub reward_vec: Vec<f32>,
+    pub done_vec: Vec<bool>,
+}
+
+impl FlattenBatchTrajInfo {
+    pub fn len(&self) -> usize {
+        return self.done_vec.len();
+    }
 }
 
 impl<E: MujocoEnv + Send + 'static> BatchEnvSample<E> {
@@ -90,7 +104,7 @@ impl<E: MujocoEnv + Send + 'static> BatchEnvSample<E> {
         );
     }
 
-    pub fn sample_n_trajectories<F>(&mut self, policy: &F) -> BatchTrajInfo
+    pub fn sample_n_trajectories<F>(&mut self, policy: &F) -> FlattenBatchTrajInfo
     where
         F: Fn(NdVec2<f64>) -> NdVec2<f64>,
     {
@@ -131,16 +145,48 @@ impl<E: MujocoEnv + Send + 'static> BatchEnvSample<E> {
             self.step_multi_thread(step_task_deque.clone());
 
             if in_traj_index % 100 == 0 {
-                println!(
-                    "in_traj_index={} step_task_deque.len={} cost={:?}",
-                    in_traj_index,
-                    step_task_deque_len,
-                    start.elapsed()
-                );
+                // println!(
+                //     "in_traj_index={} step_task_deque.len={} cost={:?}",
+                //     in_traj_index,
+                //     step_task_deque_len,
+                //     start.elapsed()
+                // );
             }
         }
-        let x = Arc::try_unwrap(batch_traj_info).unwrap();
-        return x.into_inner().unwrap();
+        let mut batch_traj = Arc::try_unwrap(batch_traj_info)
+            .unwrap()
+            .into_inner()
+            .unwrap();
+        let batch_size = batch_traj.reward.shape()[0];
+        let traj_length = batch_traj.reward.shape()[1];
+        let num_element = batch_size * traj_length;
+
+        let mut obs_vec = Vec::<f32>::with_capacity(num_element);
+        let mut action_vec = Vec::<f32>::with_capacity(num_element);
+        let mut reward_vec = Vec::<f32>::with_capacity(num_element);
+        let mut done_vec = Vec::<bool>::with_capacity(num_element);
+        for b in 0..batch_traj.reward.shape()[0] {
+            for t in 0..batch_traj.reward.shape()[1] {
+                let shape = (b, t);
+                let done = *batch_traj.terminal.get(shape).unwrap() > 0;
+                obs_vec.extend_from_slice(batch_traj.observation.slice_mut(shape).unwrap());
+                action_vec.extend_from_slice(batch_traj.action.slice_mut(shape).unwrap());
+                reward_vec.push(*batch_traj.reward.get(shape).unwrap());
+                done_vec.push(done);
+
+                if done {
+                    break;
+                }
+            }
+        }
+        return FlattenBatchTrajInfo {
+            obs_dim,
+            action_dim,
+            obs_vec,
+            action_vec,
+            reward_vec,
+            done_vec,
+        };
     }
 }
 
