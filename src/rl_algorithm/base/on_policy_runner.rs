@@ -8,7 +8,7 @@ use burn::{
     tensor::{cast::ToElement, Tensor, TensorData},
     train::checkpoint::{Checkpointer, FileCheckpointer},
 };
-use ndarray::{ArrayView1, ArrayView2, MultiSliceArg};
+use ndarray::{Array2, ArrayView1, ArrayView2, MultiSliceArg};
 use std::{
     collections::HashMap,
     fmt::Display,
@@ -34,9 +34,10 @@ use crate::{
     rl_env::{
         env::MujocoEnv,
         env_sampler::{self, BatchTrajInfo, FlattenBatchTrajInfo},
-        nd_vec::{tensor2vec2, NdVec2},
     },
 };
+
+use crate::rl_algorithm::base::rl_utils::{ndarray2tensor2, tensor2ndarray2};
 
 use super::{
     config::TrainConfig,
@@ -44,8 +45,6 @@ use super::{
 };
 
 use super::memory::Memory;
-
-use crate::rl_env::nd_vec::vec2tensor2;
 
 struct CheckPoint<B: Backend, R: Record<B>> {
     actor_net_ckpter: FileCheckpointer<R>,
@@ -120,9 +119,9 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
     }
 
     pub fn sample_to_memory<AM: ActorModel<B>>(&mut self, actor: &AM, iter: usize) -> Memory<B> {
-        let policy = |obs: NdVec2<f64>| {
-            let action = actor.forward(vec2tensor2(obs, &self.device)).sample();
-            return tensor2vec2(&action).to_f64();
+        let policy = |obs: Array2<f64>| {
+            let action = actor.forward(ndarray2tensor2(obs, &self.device)).sample();
+            return tensor2ndarray2(&action).map(|x| *x as f64);
         };
         let trajs = self.env_sampler.sample_n_trajectories(&policy);
         if iter % self.config.video_log_freq == 0 {

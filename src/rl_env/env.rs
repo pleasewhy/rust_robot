@@ -5,8 +5,6 @@ use std::sync::{Arc, Mutex};
 use video_rs::encode::Settings;
 use video_rs::{Encoder, Time};
 
-use super::nd_vec::NdVec2;
-
 #[derive(Default, Debug)]
 pub struct StepInfo {
     pub obs: Vec<f64>,
@@ -66,17 +64,17 @@ pub trait MujocoEnv {
 
     fn run_policy<F>(&mut self, filename_prefix: &String, n_step: usize, policy: &F)
     where
-        F: Fn(NdVec2<f64>) -> NdVec2<f64>,
+        F: Fn(Array2<f64>) -> Array2<f64>,
     {
         self.reset();
         let obs_dim = self.get_obs_dim();
         let mut reward: f64 = 0.0;
         let mut vec_image_obs = vec![];
         for _ in 0..n_step {
-            let obs = NdVec2::from_shape_vec(self.get_obs(), [1, obs_dim]);
-            // println!("{:?}", obs);
+            let mut obs = self.get_obs();
+            let obs = Array2::from_shape_vec([1, obs_dim], obs).unwrap();
             let action = policy(obs);
-            let info = self.step(action.row(0).unwrap());
+            let info = self.step(action.row(0).to_slice().unwrap());
             reward += info.reward;
             vec_image_obs.push(info.image_obs.unwrap());
             if info.terminated {

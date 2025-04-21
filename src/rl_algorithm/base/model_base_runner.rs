@@ -8,7 +8,7 @@ use burn::{
     tensor::{cast::ToElement, Bool, Int, Tensor, TensorData},
     train::checkpoint::{Checkpointer, FileCheckpointer},
 };
-use ndarray::{ArrayView1, ArrayView2, MultiSliceArg};
+use ndarray::{Array2, ArrayView1, ArrayView2, MultiSliceArg};
 use ndarray_rand::RandomExt;
 use std::{
     collections::HashMap,
@@ -31,23 +31,21 @@ use chrono_tz::Asia::Shanghai;
 use tensorboard_rs::summary_writer::SummaryWriter;
 
 use crate::{
+    rl_algorithm::base::rl_utils::{bool_ndarray2tensor1, ndarray2tensor1, tensor2ndarray2},
     rl_algorithm::ppo::ppo_agent::PPO,
     rl_env::{
         env::MujocoEnv,
         env_sampler::{self, BatchTrajInfo, FlattenBatchTrajInfo},
-        nd_vec::{bool_ndarray2tensor1, ndarray2tensor1, tensor2ndarray2, tensor2vec2, NdVec2},
     },
 };
 
 use super::{
     config::TrainConfig,
     model::{ActorModel, BaselineModel, ModelBasedNet, RlTrainAlgorithm},
-    rl_utils,
+    rl_utils::{self, ndarray2tensor2},
 };
 
 use super::memory::Memory;
-
-use crate::rl_env::nd_vec::vec2tensor2;
 
 pub struct ModelBasedRunner<E: MujocoEnv + Send + 'static, B: AutodiffBackend> {
     device: B::Device,
@@ -113,21 +111,18 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> ModelBasedRunner<E, B> {
         }
     }
 
-    pub fn random_policy(&mut self, obs: NdVec2<f64>) -> NdVec2<f64> {
-        let arr = ndarray::Array1::random(
-            [obs.shape()[0] * self.eval_env.get_action_dim()],
+    pub fn random_policy(&mut self, obs: Array2<f64>) -> Array2<f64> {
+        let arr = ndarray::Array2::random(
+            [obs.shape()[0], self.eval_env.get_action_dim()],
             ndarray_rand::rand_distr::Uniform::new(-1.0, 1.0),
         );
-        return NdVec2::from_shape_vec(
-            arr.into_raw_vec_and_offset().0,
-            [obs.shape()[0], self.eval_env.get_action_dim()],
-        );
+        return arr;
     }
 
     pub fn sample_to_memory<AM: ActorModel<B>>(&mut self, actor: &AM, iter: usize) -> Memory<B> {
-        let policy = |obs: NdVec2<f64>| {
-            let action = actor.forward(vec2tensor2(obs, &self.device)).sample();
-            return tensor2vec2(&action).to_f64();
+        let policy = |obs: Array2<f64>| {
+            let action = actor.forward(ndarray2tensor2(obs, &self.device)).sample();
+            return tensor2ndarray2(&action).map(|x| *x as f64);
         };
         let trajs = self.env_sampler.sample_n_trajectories(&policy);
         if iter % self.config.video_log_freq == 0 {
@@ -182,8 +177,8 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> ModelBasedRunner<E, B> {
             let obs_tmp = self.eval_env.get_obs();
             obs.extend_from_slice(obs_tmp.as_slice());
         }
-        let mut obs = vec2tensor2(
-            NdVec2::from_shape_vec(obs, [batch_size, self.eval_env.get_obs_dim()]),
+        let mut obs = ndarray2tensor2(
+            Array2::from_shape_vec([batch_size, self.eval_env.get_obs_dim()], obs).unwrap(),
             &self.device,
         );
         let mut obs_vec: Vec<Tensor<B, 2>> = Vec::with_capacity(traj_length);
@@ -198,11 +193,12 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> ModelBasedRunner<E, B> {
             next_obs_vec.push(next_obs.clone());
             action_vec.push(action.clone());
 
-            let (reward, dones) = self.eval_env.get_reward(
-                tensor2ndarray2(&obs).view(),
-                tensor2ndarray2(&next_obs).view(),
-                tensor2ndarray2(&action).view(),
-            );
+            let obs_tmp = tensor2ndarray2(&obs).map(&mut |x| *x as f64);
+            let next_obs_tmp = tensor2ndarray2(&next_obs).map(&mut |x| *x as f64);
+            let action_tmp = tensor2ndarray2(&action).map(&mut |x| *x as f64);
+            let (reward, dones) =
+                self.eval_env
+                    .get_reward(obs_tmp.view(), next_obs_tmp.view(), action_tmp.view());
             let reward: Tensor<B, 1> = ndarray2tensor1(reward, &self.device);
             let dones: Tensor<B, 1, Bool> = bool_ndarray2tensor1(dones, &self.device);
             reward_vec.push(reward.clone());

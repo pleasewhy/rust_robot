@@ -1,10 +1,7 @@
 use crate::rl_algorithm::base::config::TrainConfig;
 use crate::rl_algorithm::base::memory::Memory;
-use crate::rl_algorithm::base::rl_utils;
+use crate::rl_algorithm::base::rl_utils::{self, booltensor2vec1, tensor2vec1};
 use crate::rl_algorithm::base::rl_utils::UpdateInfo;
-use crate::rl_env::nd_vec::{
-    booltensor2vec1, tensor2vec1, tensor2vec2, vec2tensor1, vec2tensor2, NdVec2,
-};
 
 use crate::rl_algorithm::base::model::{ActorModel, BaselineModel, RlTrainAlgorithm};
 use burn::module::AutodiffModule;

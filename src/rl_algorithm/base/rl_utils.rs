@@ -2,11 +2,13 @@ use burn::module::AutodiffModule;
 use burn::optim::{GradientsParams, Optimizer};
 use burn::tensor::backend::{AutodiffBackend, Backend};
 use burn::tensor::cast::ToElement;
-use burn::tensor::{Int, Tensor};
+use burn::tensor::{Bool, Element, Int, Tensor, TensorData};
 use burn::LearningRate;
 
+use ndarray::{Array1, Array2};
+use num_traits::{ToPrimitive, Zero};
+
 use crate::rl_env::env::MujocoEnv;
-use crate::rl_env::nd_vec::vec2tensor1;
 
 pub(crate) fn update_parameters<B: AutodiffBackend, M: AutodiffModule<B>>(
     loss: Tensor<B, 1>,
@@ -78,4 +80,60 @@ pub(crate) fn get_gae<B: Backend>(
         expected_returns: vec2tensor1(returns, device),
         advantages: normalize(vec2tensor1(advantages, device)),
     });
+}
+
+pub fn vec2tensor1<B: Backend, T: Element + Zero + ToPrimitive>(
+    arr: Vec<T>,
+    device: &B::Device,
+) -> Tensor<B, 1> {
+    let shape = [arr.len()];
+    let tensor_data = TensorData::new(arr, shape);
+    return Tensor::<B, 1>::from_data(tensor_data, device);
+}
+
+pub fn ndarray2tensor1<B: Backend, T: Element + Zero + ToPrimitive>(
+    arr: Array1<T>,
+    device: &B::Device,
+) -> Tensor<B, 1> {
+    let shape = arr.shape().to_vec();
+    let vec = arr.into_raw_vec_and_offset().0;
+    // let vec = vec.iter().map(|x| *x as f32).collect::<Vec<f32>>();
+    let tensor_data = TensorData::new(vec, shape);
+    return Tensor::<B, 1>::from_data(tensor_data, device);
+}
+
+pub fn ndarray2tensor2<B: Backend, T: Element + Zero + ToPrimitive>(
+    arr: Array2<T>,
+    device: &B::Device,
+) -> Tensor<B, 2> {
+    let shape = arr.shape().to_vec();
+    let vec = arr.into_raw_vec_and_offset().0;
+    let tensor_data = TensorData::new(vec, shape);
+    return Tensor::<B, 2>::from_data(tensor_data, device);
+}
+
+pub fn bool_ndarray2tensor1<B: Backend>(
+    arr: Array1<bool>,
+    device: &B::Device,
+) -> Tensor<B, 1, Bool> {
+    let shape = arr.shape().to_vec();
+    let vec = arr.into_raw_vec_and_offset().0;
+    // let vec = vec.iter().map(|x| *x as f32).collect::<Vec<f32>>();
+    let tensor_data = TensorData::new(vec, shape);
+    return Tensor::<B, 1, Bool>::from_data(tensor_data, device);
+}
+
+pub fn tensor2ndarray2<B: Backend>(tensor: &Tensor<B, 2>) -> Array2<f32> {
+    let vec = tensor.to_data().into_vec::<f32>().unwrap();
+    let shape: [usize; 2] = tensor.shape().dims();
+    return Array2::from_shape_vec(shape, vec).unwrap();
+}
+
+pub fn tensor2vec1<B: Backend>(tensor: &Tensor<B, 1>) -> Vec<f32> {
+    let vec = tensor.to_data().into_vec::<f32>().unwrap();
+    return vec;
+}
+pub fn booltensor2vec1<B: Backend>(tensor: &Tensor<B, 1, Bool>) -> Vec<bool> {
+    let vec = tensor.to_data().into_vec::<bool>().unwrap();
+    return vec;
 }
