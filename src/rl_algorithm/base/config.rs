@@ -1,15 +1,14 @@
 use burn::{config::Config, grad_clipping::GradientClippingConfig};
 
-use crate::rl_algorithm::{
-    policy_gradient::config::PgTrainingConfig, ppo::config::PPOTrainingConfig,
+use crate::{
+    rl_algorithm::{policy_gradient::config::PgTrainingConfig, ppo::config::PPOTrainingConfig},
+    rl_env::env::EnvConfig,
 };
 
 #[derive(Config)]
 pub struct TrainConfig {
     pub ppo_train_config: PPOTrainingConfig,
     pub pg_train_config: PgTrainingConfig,
-    pub n_env: usize,
-    pub traj_length: usize,
     pub video_log_freq: usize,
     pub train_iter: usize,
     pub ckpt_save_path: String,
@@ -17,6 +16,7 @@ pub struct TrainConfig {
     pub save_model_freq: usize,
     pub grad_clip: Option<GradientClippingConfig>,
     pub mujoco_simulate_thread_num: usize,
+    pub env_config: EnvConfig,
 }
 
 impl Default for TrainConfig {
@@ -24,8 +24,6 @@ impl Default for TrainConfig {
         Self {
             ppo_train_config: PPOTrainingConfig::default(),
             pg_train_config: PgTrainingConfig::default(),
-            n_env: 1000,
-            traj_length: 1000,
             video_log_freq: 100,
             train_iter: 10000,
             ckpt_save_path: "./ckpt".to_string(),
@@ -33,6 +31,7 @@ impl Default for TrainConfig {
             save_model_freq: 100,
             grad_clip: Some(GradientClippingConfig::Norm(1.0)),
             mujoco_simulate_thread_num: 4,
+            env_config: EnvConfig::default(),
         }
     }
 }

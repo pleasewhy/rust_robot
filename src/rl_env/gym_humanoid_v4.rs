@@ -1,10 +1,13 @@
-use super::env::{MujocoEnv, StepInfo};
+// modify from openai gym humanoid-v4
+// https://github.com/openai/gym/blob/master/gym/envs/mujoco/humanoid_v4.py
+
+use super::env::{EnvConfig, MujocoEnv, StepInfo};
 use crate::mujoco;
 use lazy_static::lazy_static;
 use ndarray::{self as nd, s, Array1, Array2, Array3, Axis};
 use ndarray_rand::rand_distr::{Normal, Uniform};
 use ndarray_rand::RandomExt;
-use rand::random_ratio;
+use rand::{random, Rng};
 use std::collections::vec_deque::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -27,6 +30,7 @@ pub struct HumanoidV4 {
     reset_noise_scale: f64,
     exclude_current_positions_from_observation: bool,
     skip_steps: usize,
+    env_config: EnvConfig,
     init_qpos: Array2<f64>,
     init_qvel: Array2<f64>,
     init_xquat: Array2<f64>,
@@ -51,7 +55,7 @@ impl MujocoEnv for HumanoidV4 {
             .last_n_qvel
             .pop_front()
             .unwrap_or_else(|| self.init_qvel.clone());
-        if self.is_render || random_ratio(1, 3) {
+        if self.is_render || rand::rng().random_bool(self.env_config.use_init_state_ratio) {
             init_qpos = self.init_qpos.clone();
             init_qvel = self.init_qvel.clone();
         }
@@ -131,7 +135,7 @@ impl MujocoEnv for HumanoidV4 {
         };
         self.last_n_qvel.push_back(self.data.get_qvel().to_owned());
         self.last_n_qpos.push_back(self.data.get_qpos().to_owned());
-        if self.last_n_qvel.len() > 50 {
+        if self.last_n_qvel.len() > self.env_config.reset_state_use_n_step_before_last_failed {
             self.last_n_qvel.pop_front();
             self.last_n_qpos.pop_front();
         }
@@ -174,13 +178,17 @@ impl MujocoEnv for HumanoidV4 {
         self.extend_from_obs(&mut vec);
         return vec;
     }
-    fn new(is_render: bool) -> Self {
-        return Self::from_model(GymHumanoidV4Model.clone(), is_render);
+    fn new(is_render: bool, env_config: EnvConfig) -> Self {
+        return Self::from_model(GymHumanoidV4Model.clone(), is_render, env_config);
     }
 }
 
 impl HumanoidV4 {
-    pub fn from_model(model: Arc<mujoco::model::Model>, is_render: bool) -> Self {
+    pub fn from_model(
+        model: Arc<mujoco::model::Model>,
+        is_render: bool,
+        env_config: EnvConfig,
+    ) -> Self {
         let data = mujoco::Data::new(model.clone());
         let mut render = Option::None;
         if is_render {
@@ -205,11 +213,16 @@ impl HumanoidV4 {
             reset_noise_scale: 1e-2,
             exclude_current_positions_from_observation: true,
             skip_steps: 5,
+            last_n_qvel: VecDeque::with_capacity(
+                env_config.reset_state_use_n_step_before_last_failed,
+            ),
+            last_n_qpos: VecDeque::with_capacity(
+                env_config.reset_state_use_n_step_before_last_failed,
+            ),
+            env_config,
             init_qpos,
             init_qvel,
             init_xquat,
-            last_n_qvel: VecDeque::with_capacity(50),
-            last_n_qpos: VecDeque::with_capacity(50),
         };
     }
 

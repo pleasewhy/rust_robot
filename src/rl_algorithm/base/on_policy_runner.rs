@@ -32,8 +32,8 @@ use tensorboard_rs::summary_writer::SummaryWriter;
 use crate::{
     rl_algorithm::ppo::ppo_agent::PPO,
     rl_env::{
-        env::MujocoEnv,
-        env_sampler::{self, BatchTrajInfo, FlattenBatchTrajInfo},
+        env::{EnvConfig, MujocoEnv},
+        env_sampler::{self, create_n_env, BatchTrajInfo, FlattenBatchTrajInfo},
     },
 };
 
@@ -66,14 +66,6 @@ pub struct OnPolicyRunner<E: MujocoEnv + Send + 'static, B: AutodiffBackend> {
     exp_base_path: String,
 }
 
-fn create_n_env<ENV: MujocoEnv>(n_env: usize) -> Vec<Arc<Mutex<ENV>>> {
-    let mut envs = vec![];
-    for _ in 0..n_env {
-        envs.push(Arc::new(Mutex::new(ENV::new(false))));
-    }
-    return envs;
-}
-
 fn batch_traj_to_memory<B: Backend>(
     flatten_batch_traj: FlattenBatchTrajInfo,
     device: &B::Device,
@@ -99,9 +91,9 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         );
         let writer = SummaryWriter::new(format!("./logdir/{}", &exp_name));
         let env_sampler: env_sampler::BatchEnvSample<E> = env_sampler::BatchEnvSample::new(
-            config.traj_length,
+            config.env_config.traj_length,
             6,
-            create_n_env::<E>(config.n_env),
+            create_n_env::<E>(config.env_config.clone()),
         );
         let exp_base_path = format!("{}/{}", config.ckpt_save_path, exp_name);
         std::fs::create_dir_all(&exp_base_path);
@@ -110,7 +102,7 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
             backend: PhantomData,
             writer,
             env_name: env_name.to_string(),
-            eval_env: E::new(true),
+            eval_env: E::new(true, config.env_config.clone()),
             env_sampler,
             config,
             exp_name,
@@ -127,7 +119,7 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         if iter % self.config.video_log_freq == 0 {
             self.eval_env.run_policy(
                 &format!("{}_iter{}", self.env_name, iter),
-                self.config.traj_length,
+                self.config.env_config.traj_length,
                 &policy,
             );
         }
@@ -163,8 +155,8 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
             let mut start = SystemTime::now();
             let memory = self.sample_to_memory(&actor_net, iter);
 
-            let mean_reward =
-                memory.reward().clone().sum().into_scalar().to_f32() / self.config.n_env as f32;
+            let mean_reward = memory.reward().clone().sum().into_scalar().to_f32()
+                / self.config.env_config.n_env as f32;
             log_info.insert("mean_reward".to_string(), mean_reward);
             log_info.insert("step_num".to_string(), memory.len() as f32);
             log_info.insert(

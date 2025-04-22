@@ -5,10 +5,7 @@ use std::{
 
 use ndarray::{s, Array2, Array3};
 
-use super::{
-    env::MujocoEnv,
-    // nd_vec::{NdVec2, NdVec3},
-};
+use super::env::{EnvConfig, MujocoEnv};
 
 pub struct BatchEnvSample<E: MujocoEnv + Send> {
     batch_size: usize,
@@ -272,3 +269,11 @@ impl<E: MujocoEnv + Send> StepTask<E> {
 
 unsafe impl<E: MujocoEnv> Send for StepTask<E> where E: Send {}
 unsafe impl<E: MujocoEnv> Sync for StepTask<E> where E: Sync {}
+
+pub fn create_n_env<ENV: MujocoEnv>(env_config: EnvConfig) -> Vec<Arc<Mutex<ENV>>> {
+    let mut envs = vec![];
+    for _ in 0..env_config.n_env {
+        envs.push(Arc::new(Mutex::new(ENV::new(false, env_config.clone()))));
+    }
+    return envs;
+}

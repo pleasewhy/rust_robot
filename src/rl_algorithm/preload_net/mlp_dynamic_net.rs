@@ -20,6 +20,7 @@ pub struct MlpDynamicNet<B: Backend> {
     reward_std: Tensor<B, 1>,
 }
 
+// mlp Dynamic net for predicting next state
 impl<B: Backend> MlpDynamicNet<B> {
     fn update_stat(&mut self, obs: Tensor<B, 2>, action: Tensor<B, 2>, next_obs: Tensor<B, 2>) {
         let ob_ac = Tensor::cat(vec![obs.clone(), action], 1);

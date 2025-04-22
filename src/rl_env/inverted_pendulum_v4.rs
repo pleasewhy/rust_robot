@@ -1,4 +1,7 @@
-use super::env::{MujocoEnv, StepInfo};
+// modify from openai gym inverted_pendulum_v4
+// https://github.com/openai/gym/blob/master/gym/envs/mujoco/inverted_pendulum_v4.py
+
+use super::env::{EnvConfig, MujocoEnv, StepInfo};
 use crate::mujoco;
 use lazy_static::lazy_static;
 use ndarray::{s, Array1, Array2, Array3, ArrayView2};
@@ -15,6 +18,7 @@ pub struct InvertedPendulumV4 {
     pub render: Option<mujoco::render::Render>,
     pub is_render: bool,
     pub fps: usize,
+    env_conf: EnvConfig,
     terminated: bool,
 }
 
@@ -105,13 +109,17 @@ impl MujocoEnv for InvertedPendulumV4 {
         vec[position.len()..].copy_from_slice(velocity.as_slice().unwrap());
         return vec;
     }
-    fn new(is_render: bool) -> Self {
-        return Self::from_model(InvertedPendulumV4Model.clone(), is_render);
+    fn new(is_render: bool, env_conf: EnvConfig) -> Self {
+        return Self::from_model(InvertedPendulumV4Model.clone(), is_render, env_conf);
     }
 }
 
 impl InvertedPendulumV4 {
-    pub fn from_model(model: Arc<mujoco::model::Model>, is_render: bool) -> Self {
+    pub fn from_model(
+        model: Arc<mujoco::model::Model>,
+        is_render: bool,
+        env_conf: EnvConfig,
+    ) -> Self {
         let data = mujoco::Data::new(model.clone());
         let mut render = Option::None;
         if is_render {
@@ -123,6 +131,7 @@ impl InvertedPendulumV4 {
             render,
             is_render: is_render,
             fps: 30,
+            env_conf,
             terminated: false,
         };
     }

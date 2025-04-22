@@ -1,4 +1,5 @@
 use crate::mujoco::Render;
+use burn::config::Config;
 use ndarray::{self as nd, Array1, Array2, Array3, ArrayView2};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -14,8 +15,27 @@ pub struct StepInfo {
     pub image_obs: Option<Array3<u8>>,
 }
 
+#[derive(Config, Debug)]
+pub struct EnvConfig {
+    pub n_env: usize,
+    pub traj_length: usize,
+    pub reset_state_use_n_step_before_last_failed: usize,
+    pub use_init_state_ratio: f64,
+}
+
+impl Default for EnvConfig {
+    fn default() -> Self {
+        Self {
+            n_env: 100,
+            traj_length: 1000,
+            reset_state_use_n_step_before_last_failed: 50,
+            use_init_state_ratio: 0.3,
+        }
+    }
+}
+
 pub trait MujocoEnv {
-    fn new(is_render: bool) -> Self;
+    fn new(is_render: bool, env_config: EnvConfig) -> Self;
     fn reset(&mut self);
     fn get_obs_dim(&self) -> usize;
     fn get_action_dim(&self) -> usize;
@@ -70,17 +90,21 @@ pub trait MujocoEnv {
         let obs_dim = self.get_obs_dim();
         let mut reward: f64 = 0.0;
         let mut vec_image_obs = vec![];
-        for _ in 0..n_step {
-            let mut obs = self.get_obs();
-            let obs = Array2::from_shape_vec([1, obs_dim], obs).unwrap();
-            let action = policy(obs);
-            let info = self.step(action.row(0).to_slice().unwrap());
-            reward += info.reward;
-            vec_image_obs.push(info.image_obs.unwrap());
-            if info.terminated {
-                break;
+
+        for _ in 0..10 {
+            for _ in 0..n_step {
+                let mut obs = self.get_obs();
+                let obs = Array2::from_shape_vec([1, obs_dim], obs).unwrap();
+                let action = policy(obs);
+                let info = self.step(action.row(0).to_slice().unwrap());
+                reward += info.reward;
+                vec_image_obs.push(info.image_obs.unwrap());
+                if info.terminated {
+                    break;
+                }
             }
         }
+
         let filename = format!("{}_reward_{:.2}.mp4", filename_prefix, reward);
         println!("{}", filename);
         self.save_video(&filename, vec_image_obs);
