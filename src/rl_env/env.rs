@@ -91,17 +91,15 @@ pub trait MujocoEnv {
         let mut reward: f64 = 0.0;
         let mut vec_image_obs = vec![];
 
-        for _ in 0..10 {
-            for _ in 0..n_step {
-                let mut obs = self.get_obs();
-                let obs = Array2::from_shape_vec([1, obs_dim], obs).unwrap();
-                let action = policy(obs);
-                let info = self.step(action.row(0).to_slice().unwrap());
-                reward += info.reward;
-                vec_image_obs.push(info.image_obs.unwrap());
-                if info.terminated {
-                    break;
-                }
+        for _ in 0..n_step {
+            let mut obs = self.get_obs();
+            let obs = Array2::from_shape_vec([1, obs_dim], obs).unwrap();
+            let action = policy(obs);
+            let info = self.step(action.row(0).to_slice().unwrap());
+            reward += info.reward;
+            vec_image_obs.push(info.image_obs.unwrap());
+            if info.terminated {
+                break;
             }
         }
 

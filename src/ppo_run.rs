@@ -8,11 +8,13 @@ use crate::rl_algorithm::ppo::ppo_agent::PPO;
 use crate::rl_algorithm::preload_net::mlp_critic::MLPCriticConfig;
 use crate::rl_algorithm::preload_net::mlp_policy::MLPPolicyConfig;
 use crate::rl_env::env::{EnvConfig, MujocoEnv};
+use burn::backend::libtorch::LibTorchDevice;
 use burn::backend::ndarray::NdArrayDevice;
+use burn::backend::wgpu::WgpuDevice;
 use burn::backend::Autodiff;
+use burn::backend::LibTorch;
 use burn::backend::NdArray;
-// use burn::backend::libtorch::LibTorchDevice;
-// use burn::backend::{Autodiff, LibTorch};
+use burn::backend::Wgpu;
 use burn::config::Config;
 use burn::grad_clipping::GradientClippingConfig;
 use burn::serde::Serialize;
@@ -23,7 +25,7 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
         reward_lambda: 0.99,
         learning_rate: 1e-4,
         entropy_coef: 0.01,
-        epsilon_clip: 0.1,
+        epsilon_clip: 0.4,
         update_freq: 20,
         mini_batch_size: 50000,
     };
@@ -41,8 +43,8 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
         grad_clip: Some(GradientClippingConfig::Norm(1.0)),
         mujoco_simulate_thread_num: 6,
         env_config: EnvConfig {
-            n_env: 500,
-            traj_length: 1000,
+            n_env: 300,
+            traj_length: 100,
             reset_state_use_n_step_before_last_failed: 30,
             use_init_state_ratio: 0.3,
         },
@@ -52,12 +54,12 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
     let ob_dim = test_env.get_obs_dim();
     let action_dim = test_env.get_action_dim();
 
-    type MyBackend = NdArray;
-    type MyDevice = NdArrayDevice;
-    let device = MyDevice::Cpu;
+    type MyBackend = LibTorch;
+    type MyDevice = LibTorchDevice;
+    let device = MyDevice::Mps;
     let mut actor_net =
-        MLPPolicyConfig::new(action_dim, ob_dim, 3, 256).init::<Autodiff<MyBackend>>(&device);
-    let baseline_net = MLPCriticConfig::new(ob_dim, 3, 256).init::<Autodiff<MyBackend>>(&device);
+        MLPPolicyConfig::new(action_dim, ob_dim, 1, 256).init::<Autodiff<MyBackend>>(&device);
+    let baseline_net = MLPCriticConfig::new(ob_dim, 1, 256).init::<Autodiff<MyBackend>>(&device);
     println!("actor_net={}", actor_net);
     println!("baseline_net={}", baseline_net);
     let mut runner =

@@ -9,9 +9,9 @@ mod rl_env;
 
 use rl_env::gym_humanoid_v4::HumanoidV4;
 use rl_env::inverted_pendulum_v4::InvertedPendulumV4;
+use rl_env::mobile_arm::MobileArm;
 
 fn main() {
-
-    ppo_run::train_network::<HumanoidV4>();
+    ppo_run::train_network::<MobileArm>();
     // pg_run::train_network::<HumanoidV4>();
 }

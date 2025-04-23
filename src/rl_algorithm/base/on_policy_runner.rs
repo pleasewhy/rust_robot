@@ -154,7 +154,9 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
             log_info.clear();
             let mut start = SystemTime::now();
             let memory = self.sample_to_memory(&actor_net, iter);
-
+            
+            // println!("memory.reward.shape={:?}", memory.reward().shape());
+            // println!("memory.reward={}", memory.reward());
             let mean_reward = memory.reward().clone().sum().into_scalar().to_f32()
                 / self.config.env_config.n_env as f32;
             log_info.insert("mean_reward".to_string(), mean_reward);
