@@ -15,7 +15,9 @@
               -8  -10 -10
               -5   0   20"/>
   </asset>
-
+  <visual>
+		<global offwidth="640" offheight="360" elevation="-20" azimuth="120"/>
+	  </visual>
   <default>
     <joint damping=".03" actuatorfrcrange="-0.5 0.5"/>
     <default class="wheel">
@@ -31,7 +33,7 @@
     <body name="car" pos="0 0 .03">
       <freejoint/>
       <light name="top light" pos="0 0 2" mode="trackcom" diffuse=".4 .4 .4"/>
-      <geom name="chasis" type="mesh" mesh="chasis"/>
+      <!-- <geom name="chasis" type="mesh" mesh="chasis"/> -->
       <geom name="front wheel" pos=".08 0 -.015" type="sphere" size=".015" condim="1" priority="1"/>
       <light name="front light" pos=".1 0 .02" dir="2 0 -1" diffuse="1 1 1"/>
       <body name="left wheel" pos="-.07 .06 0" zaxis="0 1 0">

@@ -1,7 +1,8 @@
 // modify from openai gym humanoid-v4
 // https://github.com/openai/gym/blob/master/gym/envs/mujoco/humanoid_v4.py
 
-use super::env::{EnvConfig, MujocoEnv, StepInfo};
+use super::config::EnvConfig;
+use super::env::{MujocoEnv, StepInfo};
 use crate::mujoco;
 use lazy_static::lazy_static;
 use ndarray::{self as nd, s, Array1, Array2, Array3, Axis};

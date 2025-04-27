@@ -8,9 +8,11 @@ use crate::rl_algorithm::policy_gradient::pg_agent::PolicyGradient;
 use crate::rl_algorithm::ppo::config::PPOTrainingConfig;
 use crate::rl_algorithm::preload_net::mlp_critic::{MLPCritic, MLPCriticConfig};
 use crate::rl_algorithm::preload_net::mlp_policy::{MLPPolicy, MLPPolicyConfig};
-use crate::rl_env::env::{EnvConfig, MujocoEnv};
+use crate::rl_env::config::EnvConfig;
+use crate::rl_env::env::MujocoEnv;
+use burn::backend::libtorch::LibTorchDevice;
 use burn::backend::ndarray::NdArrayDevice;
-use burn::backend::{Autodiff, NdArray};
+use burn::backend::{Autodiff, LibTorch, NdArray};
 // use burn::backend::libtorch::LibTorchDevice;
 // use burn::backend::{Autodiff, LibTorch};
 use burn::grad_clipping::GradientClippingConfig;
@@ -37,13 +39,13 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
             "ckpt/ppo_HumanoidV4_04-11 12:04/iter600_mean_reward1240.635".to_string(),
         ),
         save_model_freq: 100,
-        mujoco_simulate_thread_num: 6,
         grad_clip: Some(GradientClippingConfig::Norm(1.0)),
         env_config: EnvConfig {
             n_env: 500,
-            traj_length: 1000,
+            max_traj_length: 1000,
             reset_state_use_n_step_before_last_failed: 30,
             use_init_state_ratio: 0.3,
+            ..Default::default()
         },
         ..Default::default()
     };
@@ -52,8 +54,8 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
 
     let ob_dim = test_env.get_obs_dim();
     let action_dim = test_env.get_action_dim();
-    type MyBackend = NdArray;
-    type MyDevice = NdArrayDevice;
+    type MyBackend = LibTorch;
+    type MyDevice = LibTorchDevice;
     let device = MyDevice::Cpu;
     let mut actor_net =
         MLPPolicyConfig::new(action_dim, ob_dim, 3, 256).init::<Autodiff<MyBackend>>(&device);

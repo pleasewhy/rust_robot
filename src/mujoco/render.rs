@@ -63,7 +63,7 @@ impl Render {
         return x;
     }
     pub fn update_scene(&mut self, model: &Model, data: &mut Data) {
-        self.camera.lookat = data.get_subtree_com_by_body("torso");
+        self.camera.lookat = data.get_subtree_com_by_body("car");
         unsafe {
             ffi::mjv_updateScene(
                 model.get_ref(),

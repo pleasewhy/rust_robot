@@ -2,4 +2,4 @@
 LIBTORCH_USE_PYTORCH="1"
 LIBTORCH_BYPASS_VERSION_CHECK="1"
 # LD_LIBRARY_PATH="/opt/conda/envs/py_3.10/lib/python3.10/site-packages/torch/lib:$LD_LIBRARY_PATH"
-DYLD_LIBRARY_PATH="/Users/hy/miniconda3/lib/python3.12/site-packages/torch/lib:$DYLD_LIBRARY_PATH"
+# DYLD_LIBRARY_PATH="/Users/hy/miniconda3/lib/python3.12/site-packages/torch/lib:$DYLD_LIBRARY_PATH"

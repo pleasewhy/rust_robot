@@ -1,16 +1,18 @@
 // modify from openai gym inverted_pendulum_v4
 // https://github.com/openai/gym/blob/master/gym/envs/mujoco/inverted_pendulum_v4.py
 
-use super::env::{EnvConfig, MujocoEnv, StepInfo};
+use super::config::EnvConfig;
+use super::env::{MujocoEnv, StepInfo};
+
+use super::env_utils;
 use crate::mujoco;
 use lazy_static::lazy_static;
-use ndarray::{s, Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3};
+use ndarray::{s, Array1, Array2, Array3, ArrayView1, ArrayView2, ArrayView3, AssignElem};
+use num_traits::Float;
 use std::sync::{Arc, Mutex};
-
 lazy_static! {
     static ref MobileArmModel: Arc<mujoco::Model> =
-        mujoco::Model::from_xml_file("./car.xml")
-            .expect("load car.xml Failed.");
+        mujoco::Model::from_xml_file("./car.xml").expect("load car.xml Failed.");
 }
 pub struct MobileArm {
     pub model: Arc<mujoco::model::Model>,
@@ -20,6 +22,7 @@ pub struct MobileArm {
     pub fps: usize,
     env_conf: EnvConfig,
     terminated: bool,
+    last_render_time: f64,
 }
 
 unsafe impl Send for MobileArm {}
@@ -31,13 +34,14 @@ impl MujocoEnv for MobileArm {
             mujoco::ffi::mj_resetData(self.model.get_ref(), self.data.get_mut());
         };
         self.terminated = false;
+        self.last_render_time = 0.0;
     }
     fn get_obs_dim(&self) -> usize {
         return self.get_obs().len();
     }
 
     fn get_action_dim(&self) -> usize {
-        return self.data.get_ctrl().len();
+        return self.data.get_ctrl().len() + 2;
     }
     fn get_render(&self) -> Option<&mujoco::render::Render> {
         return self.render.as_ref();
@@ -61,11 +65,15 @@ impl MujocoEnv for MobileArm {
     }
 
     fn step(&mut self, action: &[f64]) -> StepInfo {
+        let (ctrl, stop) = action.split_at(action.len() - 2);
+
         self.data
             .get_ctrl()
             .as_slice_mut()
             .unwrap()
-            .copy_from_slice(action);
+            .copy_from_slice(ctrl);
+
+        let ctrl = ArrayView1::from_shape(ctrl.len(), ctrl).unwrap();
         if self.terminated {
             return StepInfo {
                 obs: Vec::new(),
@@ -75,25 +83,40 @@ impl MujocoEnv for MobileArm {
                 image_obs: None,
             };
         }
-        let target_pos = Array1::from_vec(vec![1.0, 1.0]);
-        let last_distance = self.get_distance(target_pos.view());
-        unsafe { mujoco::ffi::mj_step(self.model.get_ref(), self.data.get_mut()) };
-        let distance = self.get_distance(target_pos.view());
 
-        // let reward: f64 = last_distance - distance - 0.1 * self.data.get_ctrl().pow2().sum();
-        let reward: f64 = (last_distance - distance) * 10.0;
-        let terminated = distance > 1.45;
+        let before_xipos = self.data.get_xipos().to_owned();
+        unsafe { mujoco::ffi::mj_step(self.model.get_ref(), self.data.get_mut()) };
+        let after_xipos = self.data.get_xipos();
+
+        // let ctrl_cost = -ctrl.pow2().sum() * 0.01;
+        let (xv, yv, zv) = env_utils::velocity(
+            self.model.opt.timestep,
+            self.model.clone(),
+            before_xipos.view(),
+            after_xipos.view(),
+        );
+        println!("xv={}, yv={}, zv={}", xv, yv, zv);
+        let velocity_reward = -zv.abs() - ((xv.powi(2) + yv.powi(2)).sqrt() - 0.5).abs();
+        // println!("velocity_reward={} ctrl_cost={}", velocity_reward, ctrl_cost);
+        let reward: f64 = velocity_reward;
+        let terminated = false;
         self.terminated = terminated;
         let obs = self.get_obs();
 
         let mut image_obs = None;
-        if self.is_render {
+        if self.is_render
+            && ((self.data.time - self.last_render_time) > 1.0 / (self.get_fps() as f64)
+                || self.last_render_time == 0.0)
+        {
+            let start = std::time::Instant::now();
+            self.last_render_time = self.data.time;
             let render = self.render.as_mut().unwrap();
             render.update_scene(&self.model, &mut self.data);
             let (image, _) = render.render();
             let image = Array3::from_shape_vec((render.get_height(), render.get_width(), 3), image)
                 .unwrap();
             image_obs = Some(image);
+            println!("render time={:?}", start.elapsed());
         }
         let step_info = StepInfo {
             obs: obs,
@@ -120,17 +143,6 @@ impl MujocoEnv for MobileArm {
 }
 
 impl MobileArm {
-    pub fn get_distance(&self, target_pos: ArrayView1<f64>) -> f64 {
-        let xipos = self.data.get_xipos();
-        let id = self.model.get_body_id("car");
-        let pos = xipos.slice(s![id, 0..2]);
-        // println!("pos={:?}", pos);
-        assert_eq!(target_pos.len(), 2);
-        assert_eq!(pos.len(), 2);
-        let x = (&pos - &target_pos).pow2().sum().sqrt();
-        // println!("distance={:?}", x);
-        return x;
-    }
     pub fn from_model(
         model: Arc<mujoco::model::Model>,
         is_render: bool,
@@ -149,6 +161,7 @@ impl MobileArm {
             fps: 30,
             env_conf,
             terminated: false,
+            last_render_time: 0.0,
         };
     }
 }

@@ -1,11 +1,12 @@
 use burn::{
-    nn::{Linear, LinearConfig, Relu, Tanh},
+    nn::{Linear, LinearConfig, Lstm, Relu, Tanh},
     prelude::*,
 };
 
 #[derive(Module, Debug)]
 pub enum BurnForwarder<B: Backend> {
     Linear(Linear<B>),
+    Lstm(Lstm<B>),
     Relu(Relu),
     Tanh(Tanh),
 }
@@ -29,6 +30,15 @@ impl<B: Backend> Sequence<B> {
         for forwarder in &self.forwarder_vec {
             out = match forwarder {
                 BurnForwarder::Linear(linear) => linear.forward(out),
+                BurnForwarder::Lstm(lstm) => {
+                    assert_eq!(D, 3);
+                    let shape = out.shape();
+                    let (pred, state) = lstm.forward(
+                        out.reshape([shape.dims[0], shape.dims[1], shape.dims[2]]),
+                        None,
+                    );
+                    pred.expand(input.shape())
+                }
                 BurnForwarder::Relu(relu) => relu.forward(out),
                 BurnForwarder::Tanh(tanh) => tanh.forward(out),
             }

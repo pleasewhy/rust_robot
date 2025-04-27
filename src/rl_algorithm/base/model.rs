@@ -2,35 +2,45 @@ use std::fmt::Display;
 
 use crate::burn_utils::distribution::normal::Normal;
 use burn::module::{AutodiffModule, Module};
+use burn::optim::Optimizer;
+use burn::prelude::*;
 use burn::tensor::backend::{AutodiffBackend, Backend};
-use burn::tensor::Tensor;
 
 use super::config::TrainConfig;
 use super::memory::Memory;
 use super::rl_utils::UpdateInfo;
-use burn::optim::Optimizer;
 
 // for predicting next state
 pub trait ModelBasedNet<B: Backend>: Module<B> {
-    fn forward(&self, obs: Tensor<B, 2>, action: Tensor<B, 2>) -> Tensor<B, 2>;
+    fn forward(&self, obs: Tensor<B, 3>, action: Tensor<B, 3>) -> Tensor<B, 3>;
     fn loss(
         &mut self,
-        obs: Tensor<B, 2>,
-        action: Tensor<B, 2>,
-        next_obs: Tensor<B, 2>,
-        reward: Tensor<B, 1>,
-    ) -> Tensor<B, 1>;
+        obs: Tensor<B, 3>,
+        action: Tensor<B, 3>,
+        next_obs: Tensor<B, 3>,
+        reward: Tensor<B, 2>,
+    ) -> Tensor<B, 2>;
 }
 
 // for predicting action normal distribution
 pub trait ActorModel<B: Backend>: Module<B> {
-    fn forward(&self, input: Tensor<B, 2>) -> Normal<B>;
+    fn forward(
+        &self,
+        input: Tensor<B, 3>,
+        traj_length: Tensor<B, 1, Int>,
+        mask: Tensor<B, 3>,
+    ) -> Normal<B>;
     fn std_mean(&self) -> Tensor<B, 1>;
 }
 
 // for predicting values of states
 pub trait BaselineModel<B: Backend>: Module<B> {
-    fn forward(&self, input: Tensor<B, 2>) -> Tensor<B, 1>;
+    fn forward(
+        &self,
+        input: Tensor<B, 3>,
+        traj_length: Tensor<B, 1, Int>,
+        mask: Tensor<B, 3>,
+    ) -> Tensor<B, 2>;
 }
 
 pub trait RlTrainAlgorithm<

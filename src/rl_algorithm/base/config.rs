@@ -2,7 +2,7 @@ use burn::{config::Config, grad_clipping::GradientClippingConfig};
 
 use crate::{
     rl_algorithm::{policy_gradient::config::PgTrainingConfig, ppo::config::PPOTrainingConfig},
-    rl_env::env::EnvConfig,
+    rl_env::config::EnvConfig,
 };
 
 #[derive(Config)]
@@ -15,7 +15,6 @@ pub struct TrainConfig {
     pub resume_from_ckpt_path: Option<String>,
     pub save_model_freq: usize,
     pub grad_clip: Option<GradientClippingConfig>,
-    pub mujoco_simulate_thread_num: usize,
     pub env_config: EnvConfig,
 }
 
@@ -30,7 +29,6 @@ impl Default for TrainConfig {
             resume_from_ckpt_path: None,
             save_model_freq: 100,
             grad_clip: Some(GradientClippingConfig::Norm(1.0)),
-            mujoco_simulate_thread_num: 4,
             env_config: EnvConfig::default(),
         }
     }

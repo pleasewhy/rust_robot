@@ -4,7 +4,9 @@ use ndarray::{self as nd, Array1, Array2, Array3, ArrayView2};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use video_rs::encode::Settings;
-use video_rs::{Encoder, Time};
+use video_rs::ffmpeg::util::format::Pixel as AvPixel;
+use video_rs::{options::Options, Encoder, Time};
+use super::config::EnvConfig;
 
 #[derive(Default, Debug)]
 pub struct StepInfo {
@@ -13,25 +15,6 @@ pub struct StepInfo {
     pub terminated: bool,
     pub truncated: bool,
     pub image_obs: Option<Array3<u8>>,
-}
-
-#[derive(Config, Debug)]
-pub struct EnvConfig {
-    pub n_env: usize,
-    pub traj_length: usize,
-    pub reset_state_use_n_step_before_last_failed: usize,
-    pub use_init_state_ratio: f64,
-}
-
-impl Default for EnvConfig {
-    fn default() -> Self {
-        Self {
-            n_env: 100,
-            traj_length: 1000,
-            reset_state_use_n_step_before_last_failed: 50,
-            use_init_state_ratio: 0.3,
-        }
-    }
 }
 
 pub trait MujocoEnv {
@@ -66,8 +49,13 @@ pub trait MujocoEnv {
             return;
         }
         let render = self.get_render().unwrap();
-        let settings =
-            Settings::preset_h264_yuv420p(render.get_width(), render.get_height(), false);
+        let mut settings = Settings::preset_h264_custom(
+            render.get_width(),
+            render.get_height(),
+            AvPixel::YUV420P,
+            Options::preset_h264(),
+        );
+        settings.set_keyframe_interval(self.get_fps() as u64);
         let duration = Time::from_nth_of_a_second(self.get_fps());
         let mut position = Time::zero();
         let mut encoder =
@@ -91,15 +79,17 @@ pub trait MujocoEnv {
         let mut reward: f64 = 0.0;
         let mut vec_image_obs = vec![];
 
-        for _ in 0..n_step {
+        for i in 0..n_step {
             let mut obs = self.get_obs();
             let obs = Array2::from_shape_vec([1, obs_dim], obs).unwrap();
             let action = policy(obs);
             let info = self.step(action.row(0).to_slice().unwrap());
             reward += info.reward;
-            vec_image_obs.push(info.image_obs.unwrap());
             if info.terminated {
                 break;
+            }
+            if info.image_obs.is_some() {
+                vec_image_obs.push(info.image_obs.unwrap());
             }
         }
 

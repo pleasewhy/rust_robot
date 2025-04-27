@@ -1,40 +1,26 @@
 use burn::{
     config::Config,
-    module::Module,
-    nn::LinearConfig,
-    optim::{decay::WeightDecayConfig, AdamConfig, Optimizer},
+    optim::Optimizer,
     prelude::Backend,
     record::{Record, Recorder},
-    tensor::{cast::ToElement, Tensor, TensorData},
-    train::checkpoint::{Checkpointer, FileCheckpointer},
+    tensor::{cast::ToElement, Float, Tensor},
+    train::checkpoint::FileCheckpointer,
 };
-use ndarray::{Array2, ArrayView1, ArrayView2, MultiSliceArg};
-use std::{
-    collections::HashMap,
-    fmt::Display,
-    marker::PhantomData,
-    path::Path,
-    sync::{Arc, Mutex},
-    time::SystemTime,
-};
-
-use burn::grad_clipping::GradientClippingConfig;
 use burn::{
     module::AutodiffModule,
     optim::AdamWConfig,
     record::{DefaultFileRecorder, FullPrecisionSettings},
     tensor::backend::AutodiffBackend,
 };
-use chrono::{Local, Utc};
+use chrono::Utc;
 use chrono_tz::Asia::Shanghai;
+use ndarray::{Array2, Array3};
+use std::{collections::HashMap, fmt::Display, marker::PhantomData, time::SystemTime};
 use tensorboard_rs::summary_writer::SummaryWriter;
 
-use crate::{
-    rl_algorithm::ppo::ppo_agent::PPO,
-    rl_env::{
-        env::{EnvConfig, MujocoEnv},
-        env_sampler::{self, create_n_env, BatchTrajInfo, FlattenBatchTrajInfo},
-    },
+use crate::rl_env::{
+    env::MujocoEnv,
+    env_sampler::{self, create_n_env, BatchTrajInfo},
 };
 
 use crate::rl_algorithm::base::rl_utils::{ndarray2tensor2, tensor2ndarray2};
@@ -60,22 +46,21 @@ pub struct OnPolicyRunner<E: MujocoEnv + Send + 'static, B: AutodiffBackend> {
     writer: SummaryWriter,
     env_name: String,
     eval_env: E,
+    action_dim: usize,
     env_sampler: env_sampler::BatchEnvSample<E>,
     config: TrainConfig,
     exp_name: String,
     exp_base_path: String,
 }
 
-fn batch_traj_to_memory<B: Backend>(
-    flatten_batch_traj: FlattenBatchTrajInfo,
-    device: &B::Device,
-) -> Memory<B> {
+fn batch_traj_to_memory<B: Backend>(batch_traj: BatchTrajInfo, device: &B::Device) -> Memory<B> {
     return Memory::new(
-        flatten_batch_traj.obs_vec,
-        Vec::new(),
-        flatten_batch_traj.action_vec,
-        flatten_batch_traj.reward_vec,
-        flatten_batch_traj.done_vec,
+        batch_traj.obs,
+        Array3::zeros((0, 0, 0)),
+        batch_traj.action,
+        batch_traj.reward,
+        batch_traj.terminal.map(|x| *x > 0u8),
+        batch_traj.traj_length,
         device,
     );
 }
@@ -90,38 +75,65 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
             Utc::now().with_timezone(&Shanghai).format("%m-%d %H:%M")
         );
         let writer = SummaryWriter::new(format!("./logdir/{}", &exp_name));
+        let start = SystemTime::now();
         let env_sampler: env_sampler::BatchEnvSample<E> = env_sampler::BatchEnvSample::new(
-            config.env_config.traj_length,
-            6,
+            config.env_config.clone(),
             create_n_env::<E>(config.env_config.clone()),
         );
+        println!("env_sampler create time={:?}", start.elapsed().unwrap());
         let exp_base_path = format!("{}/{}", config.ckpt_save_path, exp_name);
         std::fs::create_dir_all(&exp_base_path);
+
+        let eval_env = E::new(true, config.env_config.clone());
+        let action_dim = eval_env.get_action_dim();
         Self {
             device: device,
             backend: PhantomData,
+            action_dim,
             writer,
             env_name: env_name.to_string(),
-            eval_env: E::new(true, config.env_config.clone()),
             env_sampler,
             config,
+            eval_env,
             exp_name,
             exp_base_path,
         }
     }
 
-    pub fn sample_to_memory<AM: ActorModel<B>>(&mut self, actor: &AM, iter: usize) -> Memory<B> {
+    pub fn sample_to_memory<AM: ActorModel<B> + Display>(
+        &mut self,
+        actor: &AM,
+        iter: usize,
+    ) -> Memory<B> {
         let policy = |obs: Array2<f64>| {
-            let action = actor.forward(ndarray2tensor2(obs, &self.device)).sample();
-            return tensor2ndarray2(&action).map(|x| *x as f64);
+            // obs:(seq_length, obs_dim)
+            let input = ndarray2tensor2(obs, &self.device);
+            let input = input.unsqueeze_dim::<3>(1); // (batch_size, seq_length, obs_dim), seq_length=1
+            let batch_size = input.shape().dims[0];
+            let obs_dim = input.shape().dims[2];
+            let traj_length = Tensor::ones([batch_size], &self.device);
+            let mask: Tensor<B, 2> = Tensor::ones([batch_size, 1], &self.device);
+            let mask = mask
+                .repeat_dim(1, self.action_dim)
+                .reshape([batch_size, self.action_dim, 1])
+                .swap_dims(1, 2);
+            let action = actor
+                .forward(input, traj_length, mask)
+                .sample()
+                .squeeze::<2>(1);
+            let action = tensor2ndarray2::<B, f32, Float>(&action);
+            return action.map(|x| *x as f64);
         };
         let trajs = self.env_sampler.sample_n_trajectories(&policy);
         if iter % self.config.video_log_freq == 0 {
+            println!("iter={} video log", iter);
+            let start = SystemTime::now();
             self.eval_env.run_policy(
                 &format!("{}_iter{}", self.env_name, iter),
-                self.config.env_config.traj_length,
+                self.config.env_config.max_traj_length,
                 &policy,
             );
+            println!("eval_env run_policy time={:?}", start.elapsed().unwrap());
         }
         return batch_traj_to_memory(trajs, &self.device);
     }
@@ -154,13 +166,17 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
             log_info.clear();
             let mut start = SystemTime::now();
             let memory = self.sample_to_memory(&actor_net, iter);
-            
+
             // println!("memory.reward.shape={:?}", memory.reward().shape());
             // println!("memory.reward={}", memory.reward());
             let mean_reward = memory.reward().clone().sum().into_scalar().to_f32()
                 / self.config.env_config.n_env as f32;
             log_info.insert("mean_reward".to_string(), mean_reward);
-            log_info.insert("step_num".to_string(), memory.len() as f32);
+            let traj_length = memory.traj_length();
+            log_info.insert(
+                "step_num".to_string(),
+                traj_length.clone().sum().into_scalar().to_f32(),
+            );
             log_info.insert(
                 "collect_time".to_string(),
                 start.elapsed().unwrap().as_millis() as f32,
