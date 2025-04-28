@@ -34,10 +34,10 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
         video_log_freq: 100,
         train_iter: 10000,
         ckpt_save_path: "./ckpt".to_string(),
-        // resume_from_ckpt_path: None,
-        resume_from_ckpt_path: Some(
-            "ckpt/ppo_HumanoidV4_04-11 12:04/iter600_mean_reward1240.635".to_string(),
-        ),
+        resume_from_ckpt_path: None,
+        // resume_from_ckpt_path: Some(
+        //     "ckpt/ppo_HumanoidV4_04-11 12:04/iter600_mean_reward1240.635".to_string(),
+        // ),
         save_model_freq: 100,
         grad_clip: Some(GradientClippingConfig::Norm(1.0)),
         env_config: EnvConfig {

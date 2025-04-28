@@ -3,7 +3,7 @@ use std::{
     time::SystemTime,
 };
 
-use ndarray::{s, Array1, Array2, Array3, AssignElem};
+use ndarray::{s, Array1, Array2, Array3};
 
 use super::config::EnvConfig;
 use super::env::MujocoEnv;
@@ -28,24 +28,15 @@ pub struct BatchTrajInfo {
 }
 
 impl BatchTrajInfo {
-    pub fn truncate(&self, new_batch_traj_length: usize) -> BatchTrajInfo {
+    pub fn truncate(&self) -> BatchTrajInfo {
+        let new_batch_traj_length = *self.traj_length.iter().max().unwrap() as usize;
         let index_3d = s![.., ..new_batch_traj_length, ..];
         let index_2d = s![.., ..new_batch_traj_length];
         let obs = self.obs.slice(index_3d).to_owned();
         let next_obs = self.next_obs.slice(index_3d).to_owned();
         let action = self.action.slice(index_3d).to_owned();
         let reward = self.reward.slice(index_2d).to_owned();
-        let mut terminal = self.terminal.slice(index_2d).to_owned();
-        // for i in 0..self.traj_length.len() {
-        //     let end = self.traj_length[i] as usize - 1;
-
-        //     if end < new_batch_traj_length {
-        //         terminal[(i, end)] = 1;
-        //     }
-        // terminal.get_mut((i, end)).unwrap().assign_elem(1);
-        // }
-        // println!("traj_length={:?}", self.traj_length);
-        // println!("terminal={:?}", terminal);
+        let terminal = self.terminal.slice(index_2d).to_owned();
         return Self {
             obs,
             next_obs,
@@ -155,16 +146,14 @@ impl<E: MujocoEnv + Send + 'static> BatchEnvSample<E> {
             reward: Array2::<f32>::zeros((self.batch_size, self.max_traj_len)),
             action: Array3::<f32>::zeros((self.batch_size, self.max_traj_len, action_dim)),
             terminal: Array2::<u8>::ones((self.batch_size, self.max_traj_len)),
-            traj_length: Array1::<i32>::zeros(self.batch_size),
+            traj_length: Array1::<i32>::ones(self.batch_size),
         }));
         println!("new batch_traj_info cost={:?}", start2.elapsed());
-        let step_task_deque = Arc::new(crossbeam_deque::Injector::<StepTask<E>>::new());
 
-        let mut last_in_traj_index = 0;
         for in_traj_index in 0..self.max_traj_len {
             let actions = Arc::new(self.get_action(policy, obs_dim));
-            self.step_multi_thread(step_task_deque.clone());
-            last_in_traj_index = in_traj_index;
+            let step_task_deque = Arc::new(crossbeam_deque::Injector::<StepTask<E>>::new());
+
             for (idx, env) in self.envs.iter().enumerate() {
                 if env.lock().unwrap().is_terminated() {
                     continue;
@@ -177,18 +166,49 @@ impl<E: MujocoEnv + Send + 'static> BatchEnvSample<E> {
                     batch_traj_info: batch_traj_info.clone(),
                 });
             }
-            let done_ratio = 1.0 - step_task_deque.len() as f32 / self.batch_size as f32;
-            if step_task_deque.is_empty() || self.env_config.truncate_strategy.truncate(done_ratio)
-            {
+            if step_task_deque.is_empty() {
                 break;
             }
+            self.step_multi_thread(step_task_deque.clone());
         }
         let start1 = SystemTime::now();
-        let batch_traj = batch_traj_info
-            .lock()
-            .unwrap()
-            .truncate(last_in_traj_index + 1);
+        let batch_traj = batch_traj_info.lock().unwrap().truncate();
         println!("truncate cost={:?}", start1.elapsed());
+        // let batch_size = batch_traj.reward.shape()[0];
+        // let traj_length = batch_traj.reward.shape()[1];
+        // let num_element = batch_size * traj_length;
+
+        // let mut obs_vec = Vec::<f32>::with_capacity(num_element);
+        // let mut next_obs_vec = Vec::<f32>::with_capacity(num_element);
+        // let mut action_vec = Vec::<f32>::with_capacity(num_element);
+        // let mut reward_vec = Vec::<f32>::with_capacity(num_element);
+        // let mut done_vec = Vec::<bool>::with_capacity(num_element);
+        // for b in 0..batch_traj.reward.shape()[0] {
+        //     for t in 0..batch_traj.reward.shape()[1] {
+        //         let shape = s![b, t, ..];
+        //         let done = *batch_traj.terminal.get((b, t)).unwrap() > 0 || t == traj_length - 1;
+        //         obs_vec.extend_from_slice(batch_traj.obs.slice_mut(shape).as_slice().unwrap());
+        //         next_obs_vec
+        //             .extend_from_slice(batch_traj.next_obs.slice_mut(shape).as_slice().unwrap());
+        //         action_vec
+        //             .extend_from_slice(batch_traj.action.slice_mut(shape).as_slice().unwrap());
+        //         reward_vec.push(*batch_traj.reward.get((b, t)).unwrap());
+        //         done_vec.push(done);
+
+        //         if done {
+        //             break;
+        //         }
+        //     }
+        // }
+        // return FlattenBatchTrajInfo {
+        //     obs_dim,
+        //     action_dim,
+        //     obs_vec,
+        //     next_obs_vec,
+        //     action_vec,
+        //     reward_vec,
+        //     done_vec,
+        // };
         println!(
             "batch_traj_info={:?} cost={:?}",
             batch_traj.obs.shape(),
@@ -266,7 +286,6 @@ impl<E: MujocoEnv + Send> StepTask<E> {
                     .as_slice(),
             );
         batch_traj_info.terminal[get_index] = step_info.terminated as u8;
-        // println!("batch_traj_info.terminal[get_index]={:?}", batch_traj_info.terminal[get_index]);
         batch_traj_info.traj_length[self.env_idx] = (self.in_traj_index + 1) as i32;
     }
 }

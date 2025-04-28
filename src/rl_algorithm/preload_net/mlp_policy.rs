@@ -18,7 +18,7 @@ impl<B: Backend> ActorModel<B> for MLPPolicy<B> {
         &self,
         input: Tensor<B, 3>,
         traj_length: Tensor<B, 1, Int>,
-        mask: Tensor<B, 3>,
+        _: Tensor<B, 3>,
     ) -> Normal<B> {
         let batch_size = input.shape().dims[0];
         let seq_length = input.shape().dims[1];

@@ -48,9 +48,6 @@ impl<
             .clone()
             .clamp(1.0 - ppo_config.epsilon_clip, 1.0 + ppo_config.epsilon_clip);
 
-        // let ratio = ratio.mul(seq_mask.clone());
-        // let clipped_ratio = clipped_ratio.mul(seq_mask.clone());
-
         let now_advantage = ratio * advantages.clone();
         let clip_advantage = clipped_ratio * advantages.clone();
 
@@ -151,7 +148,8 @@ impl<
         update_info.mean_q_val = expected_values
             .clone()
             .mul(seq_mask.clone())
-            .mean()
+            .sum()
+            .div(valid_timestep.clone())
             .into_data()
             .as_slice()
             .unwrap()[0];

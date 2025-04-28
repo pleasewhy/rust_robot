@@ -40,7 +40,7 @@ pub fn normalize_with_mask<B: Backend>(tensor: Tensor<B, 2>, mask: Tensor<B, 2>)
     let mean = mean_with_mask(tensor.clone(), mask.clone());
     let std = std_with_mask(tensor.clone(), mean, mask.clone());
 
-    return (tensor.clone() - mean) / (std + 1e-6).into_scalar();
+    return (tensor.clone() - mean).mul(mask) / (std + 1e-6).into_scalar();
 }
 
 #[derive(Debug)]
@@ -86,9 +86,6 @@ pub(crate) fn get_gae<B: Backend>(
             let now_idx = (b, i);
             let reward = rewards.get(now_idx)?;
             let not_done = *not_dones.get(now_idx)? as i8 as f32;
-            if reward == &0.0 && not_done == 0.0 {
-                continue;
-            }
             running_return = reward + reward_gamma * running_return * not_done;
             running_advantage = reward - values.get(now_idx)?
                 + reward_gamma
@@ -104,8 +101,8 @@ pub(crate) fn get_gae<B: Backend>(
     // println!("advantages: {:?}", advantages);
     let res = Some(GAEOutput {
         expected_returns: ndarray2tensor2(returns, device),
-        // advantages: normalize_with_mask(ndarray2tensor2(advantages, device), seq_mask),
-        advantages: ndarray2tensor2(advantages, device),
+        advantages: normalize_with_mask(ndarray2tensor2(advantages, device), seq_mask),
+        // advantages: ndarray2tensor2(advantages, device),
     });
 
     return res;

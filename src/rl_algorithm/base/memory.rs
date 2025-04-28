@@ -280,4 +280,15 @@ mod tests {
     use super::*;
     use burn::backend::ndarray::{NdArray, NdArrayDevice};
     use burn::tensor::{Data, Int, Tensor};
+
+    #[test]
+    fn test_generate_mask() {
+        let mut traj_length = ndarray::Array1::<i32>::from_elem(5, 1);
+        traj_length[0] = 3;
+        traj_length[1] = 3;
+        let max_traj_len = 4;
+        let device = &NdArrayDevice::Cpu;
+        let mask = generate_mask::<NdArray>(&traj_length, max_traj_len, device);
+        println!("mask={}", mask);
+    }
 }
