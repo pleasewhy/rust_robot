@@ -13,7 +13,7 @@ pub enum BurnForwarder<B: Backend> {
 
 #[derive(Module, Debug)]
 pub struct Sequence<B: Backend> {
-    forwarder_vec: Vec<BurnForwarder<B>>,
+    pub forwarder_vec: Vec<BurnForwarder<B>>,
 }
 
 impl<B: Backend> Sequence<B> {
@@ -25,6 +25,34 @@ impl<B: Backend> Sequence<B> {
         self.forwarder_vec.append(vec);
     }
 
+    pub fn forward_with_mask(&self, input: Tensor<B, 3>, mask: Tensor<B, 2>) -> Tensor<B, 3> {
+        let mut out = input.clone();
+        let batch_size = input.shape().dims[0];
+        let max_seq_len = input.shape().dims[1];
+        for forwarder in &self.forwarder_vec {
+            out = match forwarder {
+                BurnForwarder::Linear(linear) => linear.forward(out),
+                BurnForwarder::Lstm(lstm) => {
+                    let shape = out.shape();
+                    let (pred, state) = lstm.forward(
+                        out.reshape([shape.dims[0], shape.dims[1], shape.dims[2]]),
+                        None,
+                    );
+                    pred.expand(input.shape())
+                }
+                BurnForwarder::Relu(relu) => relu.forward(out),
+                BurnForwarder::Tanh(tanh) => tanh.forward(out),
+            };
+            let hidden_dim = out.shape().dims[2];
+            let hidden_mask = mask
+                .clone()
+                .repeat_dim(1, hidden_dim)
+                .reshape([batch_size, hidden_dim, max_seq_len])
+                .swap_dims(1, 2);
+            out = out.mul(hidden_mask);
+        }
+        return out;
+    }
     pub fn forward<const D: usize>(&self, input: Tensor<B, D>) -> Tensor<B, D> {
         let mut out = input.clone();
         for forwarder in &self.forwarder_vec {
@@ -83,11 +111,14 @@ pub fn build_mlp_by_dims<B: Backend>(
     let mut in_size = input_size;
     for hidden_dim in layer_dims {
         seq.push(BurnForwarder::Linear(
-            LinearConfig::new(in_size, *hidden_dim).init(device),
+            LinearConfig::new(in_size, *hidden_dim)
+                .with_bias(false)
+                .init(device),
         ));
         seq.push(BurnForwarder::Relu(Relu::new()));
         in_size = *hidden_dim;
     }
+
     seq.push(BurnForwarder::Linear(
         LinearConfig::new(in_size, output_size).init(device),
     ));

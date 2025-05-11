@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use burn::{
+    module::Module,
     prelude::Backend,
     tensor::{self, Bool, Int, Tensor, TensorData},
 };
@@ -163,6 +164,18 @@ impl<B: Backend> Memory<B> {
     pub fn done(&self) -> &Tensor<B, 2, Bool> {
         &self.done
     }
+    pub fn tensor_memory_size(&self) -> usize {
+        return self.obs.shape().num_elements() * self.obs.dtype().size()
+            + self.next_obs.shape().num_elements() * self.next_obs.dtype().size()
+            + self.action.shape().num_elements() * self.action.dtype().size()
+            + self.reward.shape().num_elements() * self.reward.dtype().size()
+            + self.done.shape().num_elements() * self.done.dtype().size()
+            + self.traj_length.shape().num_elements() * self.traj_length.dtype().size()
+            + self.seq_mask.shape().num_elements() * self.seq_mask.dtype().size()
+            + self.actor_net_mask.shape().num_elements() * self.actor_net_mask.dtype().size()
+            + self.baseline_net_mask.shape().num_elements()
+                * self.baseline_net_mask.dtype().size();
+    }
     pub fn mini_batch_iter<'a>(
         &'a self,
         num_epoch: usize,
@@ -279,7 +292,7 @@ impl<'a, B: Backend> MiniBatchIter<'a, B> {
 mod tests {
     use super::*;
     use burn::backend::ndarray::{NdArray, NdArrayDevice};
-    use burn::tensor::{Data, Int, Tensor};
+    use burn::tensor::{Int, Tensor};
 
     #[test]
     fn test_generate_mask() {

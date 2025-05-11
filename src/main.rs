@@ -6,10 +6,11 @@ mod burn_utils;
 mod mujoco;
 mod pg_run;
 mod ppo_run;
+// mod rnn_ppo_run;
 mod rl_algorithm;
 mod rl_env;
 
-use burn::{backend::LibTorch, prelude::*};
+use burn::prelude::*;
 use rl_env::gym_humanoid_v4::HumanoidV4;
 use rl_env::inverted_pendulum_v4::InvertedPendulumV4;
 use rl_env::mobile_arm::MobileArm;
@@ -24,6 +25,7 @@ fn main() {
     //         .reshape::<3, [usize; 3]>([2, 3, 3])
     //         .swap_dims(0, 2)
     // );
-    ppo_run::train_network::<HumanoidV4>();
+    ppo_run::train_network::<InvertedPendulumV4>();
     // pg_run::train_network::<HumanoidV4>();
+    // rnn_ppo_run::train_network::<HumanoidV4>();
 }

@@ -95,10 +95,25 @@ impl MujocoEnv for MobileArm {
             before_xipos.view(),
             after_xipos.view(),
         );
-        println!("xv={}, yv={}, zv={}", xv, yv, zv);
-        let velocity_reward = -zv.abs() - ((xv.powi(2) + yv.powi(2)).sqrt() - 0.5).abs();
+        let target_pos = Array1::from_vec(vec![1.0, 1.0]);
+        let before_distance = env_utils::get_distance(
+            self.model.clone(),
+            "car",
+            before_xipos.view(),
+            target_pos.view(),
+        );
+        let after_distance = env_utils::get_distance(
+            self.model.clone(),
+            "car",
+            after_xipos.view(),
+            target_pos.view(),
+        );
+        // println!("xv={}, yv={}, zv={}", xv, yv, zv);
+        // let velocity_reward = -zv.abs() - ((xv.powi(2) + yv.powi(2)).sqrt() - 0.5).abs();
+
         // println!("velocity_reward={} ctrl_cost={}", velocity_reward, ctrl_cost);
-        let reward: f64 = velocity_reward;
+        let reward: f64 = (before_distance - after_distance) * 10.0
+            - self.data.get_ctrl().pow2().sum().sqrt() * 0.01;
         let terminated = false;
         self.terminated = terminated;
         let obs = self.get_obs();

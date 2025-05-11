@@ -42,7 +42,6 @@ impl<B: Backend> ActorModel<B> for LstmPolicy<B> {
 pub struct LstmPolicyConfig {
     action_dim: usize,
     observation_dim: usize,
-    n_layers: usize,
     layer_size: usize,
 }
 

@@ -12,10 +12,11 @@ use burn::prelude::*;
 use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::cast::ToElement;
 use burn::tensor::{Bool, Tensor};
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::marker::PhantomData;
 
-pub struct PolicyGradient<B: Backend, AM: ActorModel<B>, BM: BaselineModel<B>> {
+pub struct PolicyGradient<B: AutodiffBackend, AM: ActorModel<B>, BM: BaselineModel<B>> {
     backend: PhantomData<B>,
     actor: PhantomData<AM>,
     baseline_net: PhantomData<BM>,
@@ -33,6 +34,7 @@ impl<
         traj_length: Tensor<B, 1, Int>,
         valid_timestep: Tensor<B, 1>,
         actor_net_mask: Tensor<B, 3>,
+        seq_mask: Tensor<B, 2>,
         action: Tensor<B, 3>,
         advantages: Tensor<B, 2>,
         actor_optimizer: &mut (impl Optimizer<AM, B> + Sized),
@@ -40,7 +42,7 @@ impl<
     ) -> (AM, f32) {
         let pg_config = &config.pg_train_config;
         let log_prob = actor_net
-            .forward(obs, traj_length, actor_net_mask)
+            .autodiff_forward(obs, traj_length, seq_mask)
             .independent_log_prob(action);
         let actor_loss = -(log_prob.clone() * advantages.clone()).sum() / valid_timestep;
 
@@ -60,13 +62,14 @@ impl<
         obs: Tensor<B, 3>,
         traj_length: Tensor<B, 1, Int>,
         baseline_net_mask: Tensor<B, 3>,
+        seq_mask: Tensor<B, 2>,
         returns: Tensor<B, 2>,
         baseline_optimizer: &mut (impl Optimizer<BM, B> + Sized),
         config: &TrainConfig,
     ) -> (BM, f32) {
         let pg_config = &config.pg_train_config;
 
-        let pred = baseline_net.forward(obs, traj_length, baseline_net_mask);
+        let pred = baseline_net.autodiff_forward(obs, traj_length, seq_mask);
         let baseline_loss = MseLoss.forward(returns.clone(), pred, Reduction::Sum);
         return (
             rl_utils::update_parameters(
@@ -97,6 +100,7 @@ impl<
         &mut self,
         mut actor_net: AM,
         mut baseline_net: BM,
+        logger: &mut HashMap<String, f32>,
         memory: &Memory<B>,
         actor_optimizer: &mut (impl Optimizer<AM, B> + Sized),
         baseline_optimizer: &mut (impl Optimizer<BM, B> + Sized),
@@ -117,8 +121,11 @@ impl<
 
         let not_dones = memory.done().clone().bool_not();
 
-        let values =
-            baseline_net.forward(obs.clone(), traj_length.clone(), baseline_net_mask.clone());
+        let values = baseline_net.eval_forward(
+            obs.clone().inner(),
+            traj_length.clone().inner(),
+            seq_mask.clone().inner(),
+        );
         let gae_output = rl_utils::get_gae::<B>(
             tensor2ndarray2(&values).view(),
             tensor2ndarray2(rewards).view(),
@@ -144,6 +151,7 @@ impl<
             traj_length.clone(),
             valid_timestep.clone(),
             actor_net_mask.clone(),
+            seq_mask.clone(),
             action.clone(),
             advantages.clone(),
             actor_optimizer,
@@ -155,6 +163,7 @@ impl<
                 obs.clone(),
                 traj_length.clone(),
                 baseline_net_mask.clone(),
+                seq_mask.clone(),
                 expected_values.clone(),
                 baseline_optimizer,
                 config,

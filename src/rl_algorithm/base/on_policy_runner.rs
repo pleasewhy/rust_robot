@@ -45,6 +45,7 @@ pub struct OnPolicyRunner<E: MujocoEnv + Send + 'static, B: AutodiffBackend> {
     backend: PhantomData<B>,
     writer: SummaryWriter,
     env_name: String,
+    algo_name: String,
     eval_env: E,
     action_dim: usize,
     env_sampler: env_sampler::BatchEnvSample<E>,
@@ -88,6 +89,7 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         let action_dim = eval_env.get_action_dim();
         Self {
             device: device,
+            algo_name: algo_name.to_string(),
             backend: PhantomData,
             action_dim,
             writer,
@@ -112,16 +114,18 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
             let batch_size = input.shape().dims[0];
             let obs_dim = input.shape().dims[2];
             let traj_length = Tensor::ones([batch_size], &self.device);
-            let mask: Tensor<B, 2> = Tensor::ones([batch_size, 1], &self.device);
-            let mask = mask
-                .repeat_dim(1, self.action_dim)
-                .reshape([batch_size, self.action_dim, 1])
-                .swap_dims(1, 2);
+            let seq_mask = Tensor::<B::InnerBackend, 2>::ones([batch_size, 1], &self.device);
+            // let mask = mask
+            //     .repeat_dim(1, self.action_dim)
+            //     .reshape([batch_size, self.action_dim, 1])
+            //     .swap_dims(1, 2);
+
             let action = actor
-                .forward(input, traj_length, mask)
+                .clone()
+                .eval_forward(input, traj_length, seq_mask)
                 .sample()
                 .squeeze::<2>(1);
-            let action = tensor2ndarray2::<B, f32, Float>(&action);
+            let action = tensor2ndarray2::<B::InnerBackend, f32, Float>(&action);
             return action.map(|x| *x as f64);
         };
         let trajs = self.env_sampler.sample_n_trajectories(&policy);
@@ -129,7 +133,7 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
             println!("iter={} video log", iter);
             let start = SystemTime::now();
             self.eval_env.run_policy(
-                &format!("{}_iter{}", self.env_name, iter),
+                &format!("{}_{}_iter{}", self.algo_name, self.env_name, iter),
                 self.config.env_config.max_traj_length,
                 &policy,
             );
@@ -187,6 +191,7 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
                 .train(
                     actor_net,
                     baseline_net,
+                    &mut log_info,
                     &memory,
                     &mut actor_optimizer,
                     &mut baseline_optimizer,

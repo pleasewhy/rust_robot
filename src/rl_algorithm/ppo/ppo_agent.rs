@@ -11,11 +11,13 @@ use burn::prelude::Backend;
 use burn::prelude::*;
 use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::{Bool, Tensor};
+use ndarray_rand::rand::seq;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::marker::PhantomData;
+use std::process;
 
-pub struct PPO<B: Backend, AM: ActorModel<B>, BM: BaselineModel<B>> {
+pub struct PPO<B: AutodiffBackend, AM: ActorModel<B>, BM: BaselineModel<B>> {
     backend: PhantomData<B>,
     actor: PhantomData<AM>,
     baseline_net: PhantomData<BM>,
@@ -41,7 +43,7 @@ impl<
         config: &TrainConfig,
     ) -> (AM, f32) {
         let ppo_config = &config.ppo_train_config;
-        let normal = actor_net.forward(obs, traj_length.clone(), actor_net_mask.clone());
+        let normal = actor_net.autodiff_forward(obs, traj_length.clone(), seq_mask.clone());
         let logprobs: Tensor<B, 2> = normal.independent_log_prob(action);
         let ratio = (logprobs - old_logprobs).exp();
         let clipped_ratio = ratio
@@ -51,7 +53,7 @@ impl<
         let now_advantage = ratio * advantages.clone();
         let clip_advantage = clipped_ratio * advantages.clone();
 
-        let advantage_loss = -now_advantage.min_pair(clip_advantage);
+        let advantage_loss = -now_advantage.min_pair(clip_advantage).mul(seq_mask);
         let actor_loss =
             advantage_loss.sum() / num_timestep - normal.entropy().mean() * ppo_config.entropy_coef;
         return (
@@ -71,13 +73,14 @@ impl<
         traj_length: Tensor<B, 1, Int>,
         num_timestep: Tensor<B, 1>,
         mask: Tensor<B, 3>,
+        seq_mask: Tensor<B, 2>,
         returns: Tensor<B, 2>,
         baseline_optimizer: &mut (impl Optimizer<BM, B> + Sized),
         config: &TrainConfig,
     ) -> (BM, f32) {
         let ppo_config = &config.ppo_train_config;
 
-        let pred = baseline_net.forward(obs, traj_length, mask.clone());
+        let pred = baseline_net.autodiff_forward(obs, traj_length, seq_mask.clone());
         let baseline_loss = MseLoss.forward(pred, returns.clone(), Reduction::Sum) / num_timestep;
         return (
             rl_utils::update_parameters(
@@ -108,6 +111,7 @@ impl<
         &mut self,
         mut actor_net: AM,
         mut baseline_net: BM,
+        logger: &mut HashMap<String, f32>,
         memory: &Memory<B>,
         actor_optimizer: &mut (impl Optimizer<AM, B> + Sized),
         baseline_optimizer: &mut (impl Optimizer<BM, B> + Sized),
@@ -126,12 +130,16 @@ impl<
         let baseline_net_mask = memory.baseline_net_mask();
         let seq_mask = memory.seq_mask();
 
-        let old_values =
-            baseline_net.forward(obs.clone(), traj_length.clone(), baseline_net_mask.clone());
+        let old_values = baseline_net.clone().eval_forward(
+            obs.clone().inner(),
+            traj_length.clone().inner(),
+            seq_mask.clone().inner(),
+        );
+        let not_done_arr = tensor2ndarray2::<B, u8, Bool>(&not_dones).mapv(|x| x != 0);
         let old_gae_output = rl_utils::get_gae::<B>(
             tensor2ndarray2(&old_values).view(),
             tensor2ndarray2(rewards).view(),
-            tensor2ndarray2::<B, bool, Bool>(&not_dones).view(),
+            not_done_arr.view(),
             seq_mask.clone(),
             ppo_config.gae_gamma,
             ppo_config.reward_lambda,
@@ -139,8 +147,14 @@ impl<
         )?;
 
         let old_logprobs = actor_net
-            .forward(obs.clone(), traj_length.clone(), actor_net_mask.clone())
-            .independent_log_prob(action.clone());
+            .clone()
+            .eval_forward(
+                obs.clone().inner(),
+                traj_length.clone().inner(),
+                seq_mask.clone().inner(),
+            )
+            .independent_log_prob(action.clone().inner());
+        let old_logprobs = Tensor::<B, 2>::from_inner(old_logprobs);
         let advantages = old_gae_output.advantages;
         let expected_values = old_gae_output.expected_returns;
         let mut update_info = UpdateInfo::new();
@@ -179,7 +193,7 @@ impl<
             let mini_old_logprobs = mini_batch_map_2d["old_logprobs"].clone();
             let mini_expected_values = mini_batch_map_2d["expected_values"].clone();
             let mini_advantages = mini_batch_map_2d["advantages"].clone();
-            let seq_mask = mini_batch_map_2d["seq_mask"].clone();
+            let mini_seq_mask = mini_batch_map_2d["seq_mask"].clone();
 
             let mini_actor_net_mask = mini_batch_map_3d["actor_net_mask"].clone();
             let mini_baseline_net_mask = mini_batch_map_3d["baseline_net_mask"].clone();
@@ -189,7 +203,7 @@ impl<
                 mini_obs.clone(),
                 mini_traj_length.clone(),
                 valid_timestep.clone(),
-                seq_mask,
+                mini_seq_mask.clone(),
                 mini_actor_net_mask.clone(),
                 mini_action.clone(),
                 mini_advantages.clone(),
@@ -203,6 +217,7 @@ impl<
                 mini_traj_length,
                 valid_timestep.clone(),
                 mini_baseline_net_mask.clone(),
+                mini_seq_mask.clone(),
                 mini_expected_values,
                 baseline_optimizer,
                 config,
