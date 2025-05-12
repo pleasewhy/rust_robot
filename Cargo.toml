@@ -4,12 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+log = "0.4.27"
+env_logger = "0.9"
 glfw = "0.59.0"
 image = "0.25.5"
 ndarray = "0.16.1"
 ndarray-rand = "0.15.0"
 video-rs = { version = "0.10", features = ["ndarray"] }
-burn = { version = "0.17", features = ["train", "rocm"] }
+burn = { version = "0.16.1", features = ["train", "ndarray", "tch"] }
+half = "2.6.0"
 burn-cubecl = { version = "0.17" }
 rand_distr = "0.5.1"
 rand = "0.9.0"

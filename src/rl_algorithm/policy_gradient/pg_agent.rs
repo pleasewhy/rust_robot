@@ -39,7 +39,7 @@ impl<
         advantages: Tensor<B, 2>,
         actor_optimizer: &mut (impl Optimizer<AM, B> + Sized),
         config: &TrainConfig,
-    ) -> (AM, f32) {
+    ) -> (AM, crate::FType) {
         let pg_config = &config.pg_train_config;
         let log_prob = actor_net
             .autodiff_forward(obs, traj_length, seq_mask)
@@ -66,7 +66,7 @@ impl<
         returns: Tensor<B, 2>,
         baseline_optimizer: &mut (impl Optimizer<BM, B> + Sized),
         config: &TrainConfig,
-    ) -> (BM, f32) {
+    ) -> (BM, crate::FType) {
         let pg_config = &config.pg_train_config;
 
         let pred = baseline_net.autodiff_forward(obs, traj_length, seq_mask);
@@ -131,8 +131,8 @@ impl<
             tensor2ndarray2(rewards).view(),
             tensor2ndarray2::<B, bool, Bool>(&not_dones).view(),
             seq_mask.clone(),
-            pg_config.gae_gamma,
-            pg_config.reward_lambda,
+            crate::FType::from_f32(pg_config.gae_gamma),
+            crate::FType::from_f32(pg_config.reward_lambda),
             &device,
         )?;
 
@@ -140,10 +140,15 @@ impl<
         let expected_values = gae_output.expected_returns;
         let mut update_info = UpdateInfo::new();
 
-        update_info.mean_q_val = expected_values.clone().mean().into_scalar().to_f32();
+        update_info.mean_q_val = expected_values
+            .clone()
+            .mean()
+            .into_data()
+            .as_slice()
+            .unwrap()[0];
 
-        let actor_loss: f32;
-        let mut baseline_loss: f32;
+        let actor_loss: crate::FType;
+        let mut baseline_loss: crate::FType;
 
         (actor_net, actor_loss) = Self::update_actor(
             actor_net,

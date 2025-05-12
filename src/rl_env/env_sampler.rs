@@ -210,7 +210,7 @@ impl<E: MujocoEnv + Send + 'static> BatchEnvSample<E> {
         //     done_vec,
         // };
         println!(
-            "batch_traj_info={:?} cost={:?}",
+            "collect batch_traj_info finish shape={:?} cost={:?}",
             batch_traj.obs.shape(),
             start.elapsed()
         );

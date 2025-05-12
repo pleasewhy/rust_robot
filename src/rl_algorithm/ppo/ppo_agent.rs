@@ -1,3 +1,4 @@
+use crate::burn_utils;
 use crate::rl_algorithm::base::config::TrainConfig;
 use crate::rl_algorithm::base::memory::Memory;
 use crate::rl_algorithm::base::rl_utils::UpdateInfo;
@@ -7,10 +8,10 @@ use crate::rl_algorithm::base::model::{ActorModel, BaselineModel, RlTrainAlgorit
 use burn::module::AutodiffModule;
 use burn::nn::loss::{MseLoss, Reduction};
 use burn::optim::Optimizer;
-use burn::prelude::Backend;
 use burn::prelude::*;
 use burn::tensor::backend::AutodiffBackend;
-use burn::tensor::{Bool, Tensor};
+use burn::tensor::{cast::ToElement, Bool, Int, Tensor, TensorData};
+use log::{info, trace};
 use ndarray_rand::rand::seq;
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -41,21 +42,31 @@ impl<
         old_logprobs: Tensor<B, 2>,
         actor_optimizer: &mut (impl Optimizer<AM, B> + Sized),
         config: &TrainConfig,
-    ) -> (AM, f32) {
+    ) -> (AM, crate::FType) {
         let ppo_config = &config.ppo_train_config;
         let normal = actor_net.autodiff_forward(obs, traj_length.clone(), seq_mask.clone());
         let logprobs: Tensor<B, 2> = normal.independent_log_prob(action);
+        trace!("logprobs={}", logprobs);
+        trace!("old_logprobs={}", old_logprobs);
         let ratio = (logprobs - old_logprobs).exp();
+        trace!("ratio={}", ratio);
         let clipped_ratio = ratio
             .clone()
             .clamp(1.0 - ppo_config.epsilon_clip, 1.0 + ppo_config.epsilon_clip);
+        trace!("clipped_ratio={}", clipped_ratio);
 
         let now_advantage = ratio * advantages.clone();
         let clip_advantage = clipped_ratio * advantages.clone();
 
-        let advantage_loss = -now_advantage.min_pair(clip_advantage).mul(seq_mask);
-        let actor_loss =
-            advantage_loss.sum() / num_timestep - normal.entropy().mean() * ppo_config.entropy_coef;
+        trace!("advantages={}", advantages);
+        trace!("now_advantage={}", now_advantage);
+        trace!("clip_advantage={}", clip_advantage);
+
+        let advantage_loss = -now_advantage.min_pair(clip_advantage).mul(seq_mask.clone());
+
+        let actor_loss = burn_utils::mean_with_mask(advantage_loss, seq_mask.bool())
+            - normal.entropy().mean() * ppo_config.entropy_coef;
+
         return (
             rl_utils::update_parameters(
                 actor_loss.clone(),
@@ -77,11 +88,14 @@ impl<
         returns: Tensor<B, 2>,
         baseline_optimizer: &mut (impl Optimizer<BM, B> + Sized),
         config: &TrainConfig,
-    ) -> (BM, f32) {
+    ) -> (BM, crate::FType) {
         let ppo_config = &config.ppo_train_config;
 
-        let pred = baseline_net.autodiff_forward(obs, traj_length, seq_mask.clone());
-        let baseline_loss = MseLoss.forward(pred, returns.clone(), Reduction::Sum) / num_timestep;
+        let pred: Tensor<B, 2> =
+            baseline_net.autodiff_forward(obs.clone(), traj_length, seq_mask.clone());
+        // println!("pred={}", pred);
+        let baseline_loss = MseLoss.forward_no_reduction(pred, returns.clone());
+        let baseline_loss = burn_utils::mean_with_mask(baseline_loss, seq_mask.bool());
         return (
             rl_utils::update_parameters(
                 baseline_loss.clone(),
@@ -125,7 +139,9 @@ impl<
         let not_dones = memory.done().clone().bool_not();
 
         let traj_length = memory.traj_length();
-        let valid_timestep = traj_length.clone().sum().float();
+        let valid_timestep = traj_length.clone().sum();
+        let valid_timestep = valid_timestep.float();
+
         let actor_net_mask = memory.actor_net_mask();
         let baseline_net_mask = memory.baseline_net_mask();
         let seq_mask = memory.seq_mask();
@@ -135,14 +151,15 @@ impl<
             traj_length.clone().inner(),
             seq_mask.clone().inner(),
         );
-        let not_done_arr = tensor2ndarray2::<B, u8, Bool>(&not_dones).mapv(|x| x != 0);
+        trace!("old_values={}", old_values);
+        let not_done_arr = tensor2ndarray2::<B, bool, Bool>(&not_dones);
         let old_gae_output = rl_utils::get_gae::<B>(
             tensor2ndarray2(&old_values).view(),
             tensor2ndarray2(rewards).view(),
             not_done_arr.view(),
             seq_mask.clone(),
-            ppo_config.gae_gamma,
-            ppo_config.reward_lambda,
+            crate::FType::from_f32(ppo_config.gae_gamma),
+            crate::FType::from_f32(ppo_config.reward_lambda),
             &device,
         )?;
 
@@ -158,17 +175,21 @@ impl<
         let advantages = old_gae_output.advantages;
         let expected_values = old_gae_output.expected_returns;
         let mut update_info = UpdateInfo::new();
-
-        update_info.mean_q_val = expected_values
-            .clone()
-            .mul(seq_mask.clone())
-            .sum()
-            .div(valid_timestep.clone())
-            .into_data()
-            .as_slice()
-            .unwrap()[0];
-        let mut actor_loss: f32;
-        let mut baseline_loss: f32;
+        println!("expected_values={}", expected_values);
+        println!(
+            "expected_values={:?}",
+            burn_utils::mean_with_mask(expected_values.clone(), seq_mask.clone().bool())
+                .into_data()
+                .as_slice::<crate::FType>()
+                .unwrap()[0]
+        );
+        update_info.mean_q_val =
+            burn_utils::mean_with_mask(expected_values.clone(), seq_mask.clone().bool())
+                .into_data()
+                .as_slice()
+                .unwrap()[0];
+        let mut actor_loss: crate::FType;
+        let mut baseline_loss: crate::FType;
         let mini_batch_size = ppo_config.mini_batch_size.min(memory.len());
         let extra_mini_batch_map_2d = HashMap::from([
             ("old_logprobs", old_logprobs),
@@ -197,7 +218,7 @@ impl<
 
             let mini_actor_net_mask = mini_batch_map_3d["actor_net_mask"].clone();
             let mini_baseline_net_mask = mini_batch_map_3d["baseline_net_mask"].clone();
-
+            let valid_timestep = mini_seq_mask.clone().sum();
             (actor_net, actor_loss) = Self::update_actor(
                 actor_net,
                 mini_obs.clone(),

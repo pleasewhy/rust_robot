@@ -10,24 +10,29 @@ use crate::rl_algorithm::preload_net::mlp_critic::MLPCriticConfig;
 use crate::rl_algorithm::preload_net::normal_mlp_policy::{NormalMLPPolicy, NormalMLPPolicyConfig};
 use crate::rl_env::config::{EnvConfig, TruncateStrategy};
 use crate::rl_env::env::MujocoEnv;
-use burn::backend::rocm::HipDevice;
-use burn::backend::Autodiff;
-use burn::backend::Rocm;
+// use burn::backend::cuda::CudaDevice;
+use burn::backend::libtorch::LibTorchDevice;
+use burn::backend::ndarray::NdArrayDevice;
+// use burn::backend::rocm::HipDevice;
+// use burn::backend::Cuda;
+// use burn::backend::Rocm;
+use burn::backend::{Autodiff, LibTorch, NdArray};
 use burn::config::Config;
 use burn::grad_clipping::GradientClippingConfig;
 use burn::module::AutodiffModule;
 use burn::tensor::Tensor;
-use burn_cubecl::cubecl::hip::HipRuntime;
-use burn_cubecl::CubeBackend;
+// use burn_cubecl::cubecl::cuda::CudaRuntime;
+// use burn_cubecl::cubecl::hip::HipRuntime;
+// use burn_cubecl::CubeBackend;
 
 pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
     let ppo_train_config = PPOTrainingConfig {
         gae_gamma: 0.97,
         reward_lambda: 0.99,
         learning_rate: 1e-4,
-        entropy_coef: 0.001,
-        epsilon_clip: 0.2,
-        update_freq: 20,
+        entropy_coef: 0.0,
+        epsilon_clip: 0.1,
+        update_freq: 10,
         mini_batch_size: 500,
     };
 
@@ -56,11 +61,16 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
     let action_dim = test_env.get_action_dim();
 
     println!("ob_dim={}, action_dim={}", ob_dim, action_dim);
-    type MyBackend = Rocm<f32, i32, u8>;
-    type MyDevice = HipDevice;
-    let device = MyDevice::new(0);
+    // type MyBackend = Rocm<crate::FType, i16, u8>;
+    // type MyBackend = CubeBackend<HipRuntime, crate::FType, i32, u8>;;
+    type MyBackend = LibTorch<crate::FType, i8>;
+    type MyDevice = LibTorchDevice;
+    let device = MyDevice::Cuda(0);
+    // type MyBackend = NdArray<crate::FType, i16, i8>;
+    // type MyDevice = NdArrayDevice;
+    // let device = MyDevice::default();
     // let device = MyDevice::Cpu;
-
+    println!("a={}", Tensor::<MyBackend, 1>::zeros([1], &device));
     let mut actor_net =
         NormalMLPPolicyConfig::new(action_dim, ob_dim, 2, 128).init::<Autodiff<MyBackend>>(&device);
     let a = actor_net.valid();

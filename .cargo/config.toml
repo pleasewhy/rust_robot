@@ -1,3 +1,6 @@
+[build]
+jobs = 6                      # number of parallel jobs, defaults to # of CPUs
+
 [env]
 LIBTORCH_USE_PYTORCH="1"
 LIBTORCH_BYPASS_VERSION_CHECK="1"

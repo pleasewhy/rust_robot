@@ -6,6 +6,7 @@ use crate::rl_algorithm::base::rl_utils::{ndarray2tensor1, tensor2ndarray1, tens
 use burn::module::AutodiffModule;
 use burn::nn::Tanh;
 use burn::tensor::backend::AutodiffBackend;
+use burn::tensor::cast::ToElement;
 use burn::{nn::Linear, nn::LinearConfig, prelude::*};
 use ndarray::{Array1, AssignElem};
 
@@ -41,7 +42,10 @@ impl<B: Backend> NormalMLPPolicy<B> {
             .repeat_dim(1, ac_dim)
             .reshape([batch_size, ac_dim, max_seq_len])
             .swap_dims(1, 2);
-        
+        if mean.is_nan().any().into_scalar() {
+            println!("mean has nan");
+            std::process::exit(-1);
+        }
         return Distribution::Normal(Normal::new(
             mean,
             logstd.exp().powi_scalar(2),

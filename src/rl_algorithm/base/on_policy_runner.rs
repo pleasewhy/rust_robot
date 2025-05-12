@@ -56,10 +56,10 @@ pub struct OnPolicyRunner<E: MujocoEnv + Send + 'static, B: AutodiffBackend> {
 
 fn batch_traj_to_memory<B: Backend>(batch_traj: BatchTrajInfo, device: &B::Device) -> Memory<B> {
     return Memory::new(
-        batch_traj.obs,
-        Array3::zeros((0, 0, 0)),
-        batch_traj.action,
-        batch_traj.reward,
+        batch_traj.obs.mapv(|x| crate::FType::from_f32(x)),
+        Array3::zeros((1, 1, 1)),
+        batch_traj.action.mapv(|x| crate::FType::from_f32(x)),
+        batch_traj.reward.mapv(|x| crate::FType::from_f32(x)),
         batch_traj.terminal.map(|x| *x > 0u8),
         batch_traj.traj_length,
         device,
@@ -125,8 +125,8 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
                 .eval_forward(input, traj_length, seq_mask)
                 .sample()
                 .squeeze::<2>(1);
-            let action = tensor2ndarray2::<B::InnerBackend, f32, Float>(&action);
-            return action.map(|x| *x as f64);
+            let action = tensor2ndarray2::<B::InnerBackend, crate::FType, Float>(&action);
+            return action.map(|x| x.to_f64());
         };
         let trajs = self.env_sampler.sample_n_trajectories(&policy);
         if iter % self.config.video_log_freq == 0 {
@@ -173,8 +173,13 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
 
             // println!("memory.reward.shape={:?}", memory.reward().shape());
             // println!("memory.reward={}", memory.reward());
-            let mean_reward = memory.reward().clone().sum().into_scalar().to_f32()
-                / self.config.env_config.n_env as f32;
+            let mean_reward = memory
+                .reward()
+                .clone()
+                .div_scalar(self.config.env_config.n_env as f32)
+                .sum()
+                .into_scalar()
+                .to_f32();
             log_info.insert("mean_reward".to_string(), mean_reward);
             let traj_length = memory.traj_length();
             log_info.insert(
@@ -215,9 +220,9 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
                 "ppo_update_time".to_string(),
                 start.elapsed().unwrap().as_millis() as f32,
             );
-            log_info.insert("actor_loss".to_string(), update_info.actor_loss);
-            log_info.insert("critic_loss".to_string(), update_info.critic_loss);
-            log_info.insert("mean_q_val".to_string(), update_info.mean_q_val);
+            log_info.insert("actor_loss".to_string(), update_info.actor_loss.to_f32());
+            log_info.insert("critic_loss".to_string(), update_info.critic_loss.to_f32());
+            log_info.insert("mean_q_val".to_string(), update_info.mean_q_val.to_f32());
             log_info.insert(
                 "actor_std".to_string(),
                 actor_net.std_mean().into_scalar().to_f32(),
@@ -241,6 +246,7 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         println!("************iter={}************", step);
         println!();
         println!();
+        let x = 1.0f32;
         self.writer.flush();
     }
 

@@ -242,8 +242,10 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> ModelBasedRunner<E, B> {
             let mut start = SystemTime::now();
             let mut memory = self.sample_to_memory(&actor_net, iter);
 
-            let mean_reward = memory.reward().clone().sum().into_scalar().to_f32()
-                / self.config.env_config.n_env as f32;
+            let mean_reward = (memory.reward().clone() / self.config.env_config.n_env as f32)
+                .sum()
+                .into_scalar()
+                .to_f32();
             log_info.insert("mean_reward".to_string(), mean_reward);
             log_info.insert("step_num".to_string(), memory.len() as f32);
             log_info.insert(

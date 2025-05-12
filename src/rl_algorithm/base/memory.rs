@@ -77,14 +77,15 @@ impl<B: Backend> Memory<B> {
     //     }
     // }
     pub fn new(
-        obs_arr: Array3<f32>,
-        next_obs_arr: Array3<f32>,
-        action_arr: Array3<f32>,
-        reward_arr: Array2<f32>,
+        obs_arr: Array3<crate::FType>,
+        next_obs_arr: Array3<crate::FType>,
+        action_arr: Array3<crate::FType>,
+        reward_arr: Array2<crate::FType>,
         done_arr: Array2<bool>,
         traj_length_arr: Array1<i32>,
         device: &B::Device,
     ) -> Self {
+        // println!("obs={}", obs_arr);
         let start = std::time::SystemTime::now();
         let dims = obs_arr.shape();
         let batch_size = dims[0];

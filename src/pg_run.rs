@@ -10,11 +10,13 @@ use crate::rl_algorithm::preload_net::mlp_critic::MLPCriticConfig;
 use crate::rl_algorithm::preload_net::normal_mlp_policy::NormalMLPPolicyConfig;
 use crate::rl_env::config::{EnvConfig, TruncateStrategy};
 use crate::rl_env::env::MujocoEnv;
-use burn::backend::rocm::HipDevice;
-use burn::backend::{Autodiff, Rocm};
+use burn::backend::ndarray::NdArrayDevice;
+// use burn::backend::rocm::HipDevice;
+use burn::backend::{Autodiff, NdArray};
+// use burn::backend::Rocm;
 use burn::config::Config;
 use burn::grad_clipping::GradientClippingConfig;
-use burn_cubecl::cubecl::hip::runtime::HipCompiler;
+// use burn_cubecl::cubecl::hip::runtime::HipCompiler;
 
 pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
     let ppo_train_config = PPOTrainingConfig {
@@ -51,9 +53,9 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
     let ob_dim = test_env.get_obs_dim();
     let action_dim = test_env.get_action_dim();
     println!("ob_dim={}, action_dim={}", ob_dim, action_dim);
-    type MyBackend = Rocm;
-    type MyDevice = HipDevice;
-    let device = MyDevice::new(0);
+    type MyBackend = NdArray;
+    type MyDevice = NdArrayDevice;
+    let device = MyDevice::default();
     let mut actor_net =
         NormalMLPPolicyConfig::new(action_dim, ob_dim, 3, 256).init::<Autodiff<MyBackend>>(&device);
     let baseline_net = MLPCriticConfig::new(ob_dim, 3, 256).init::<Autodiff<MyBackend>>(&device);

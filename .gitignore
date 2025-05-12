@@ -5,3 +5,4 @@
 *.jpg
 /logdir
 /ckpt
+/venv
