@@ -24,3 +24,7 @@ num-traits = "0.2.19"
 tensorboard-rs = "0.5.9"
 chrono = "0.4.40"
 chrono-tz = "0.10.3"
+
+[features]
+# default = ["use_f32"]
+use_f32 = []

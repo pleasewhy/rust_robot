@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use burn::module::{list_param_ids, AutodiffModule, ModuleVisitor, ParamId};
@@ -8,12 +9,21 @@ use burn::tensor::cast::ToElement;
 use burn::tensor::{self, BasicOps, Bool, Element, Int, Tensor, TensorData, TensorKind};
 use burn::LearningRate;
 
-use log::{trace, warn};
+use super::EpochLogger;
+use log::{error, trace, warn};
 use ndarray::{Array1, Array2, Array3, ArrayView2, AssignElem};
 
 struct GradMeanVisitor<'a, B: AutodiffBackend> {
+    mean_sum: f32,
+    mean_cnt: f32,
     gradient_params: &'a GradientsParams,
     phantom: PhantomData<B>,
+}
+
+impl<B: AutodiffBackend> GradMeanVisitor<'_, B> {
+    fn mean_grad(&self) -> crate::FType {
+        return crate::f32_to_ftype(self.mean_sum / self.mean_cnt);
+    }
 }
 
 impl<B: AutodiffBackend> ModuleVisitor<B> for GradMeanVisitor<'_, B>
@@ -22,9 +32,11 @@ where
 {
     fn visit_float<const D: usize>(&mut self, id: ParamId, _tensor: &Tensor<B, D>) {
         if let Some(grad) = self.gradient_params.get::<B::InnerBackend, D>(id) {
+            self.mean_sum += grad.clone().mean().into_scalar().to_f32();
+            self.mean_cnt += 1.0;
             trace!("grad={}", grad);
             if grad.is_nan().any().into_scalar() {
-                println!("grad has nan");
+                error!("grad has nan");
                 std::process::exit(-1);
             }
         } else {
@@ -33,20 +45,30 @@ where
     }
 }
 
+#[inline]
 pub(crate) fn update_parameters<B: AutodiffBackend, M: AutodiffModule<B>>(
     loss: Tensor<B, 1>,
     module: M,
     optimizer: &mut impl Optimizer<M, B>,
     learning_rate: LearningRate,
+    module_name: Option<&str>,
 ) -> M {
     trace!("loss={}", loss);
     let gradients = loss.backward();
     let gradient_params: GradientsParams = GradientsParams::from_grads(gradients, &module);
-    let mut visitor: GradMeanVisitor<'_, B> = GradMeanVisitor {
-        gradient_params: &gradient_params,
-        phantom: PhantomData,
-    };
-    module.visit(&mut visitor);
+    if let Some(module_name) = module_name {
+        let mut visitor: GradMeanVisitor<'_, B> = GradMeanVisitor {
+            mean_sum: 0.0,
+            mean_cnt: 0.0,
+            gradient_params: &gradient_params,
+            phantom: PhantomData,
+        };
+        module.visit(&mut visitor);
+        super::EpochLogger::add_scalar(
+            ("grad", module_name),
+            crate::ftype_to_f32(visitor.mean_grad()),
+        );
+    }
 
     optimizer.step(learning_rate, module, gradient_params)
 }
@@ -85,9 +107,9 @@ pub struct UpdateInfo {
 impl UpdateInfo {
     pub fn new() -> Self {
         return Self {
-            actor_loss: crate::FType::ZERO,
-            critic_loss: crate::FType::ZERO,
-            mean_q_val: crate::FType::ZERO,
+            actor_loss: crate::FType::default(),
+            critic_loss: crate::FType::default(),
+            mean_q_val: crate::FType::default(),
         };
     }
 }
@@ -112,17 +134,17 @@ pub(crate) fn get_gae<B: Backend>(
     let mut advantages = Array2::zeros(shape);
     let start = std::time::SystemTime::now();
     for b in 0..batch_size {
-        let mut running_return = crate::FType::ZERO;
-        let mut running_advantage = crate::FType::ZERO;
+        let mut running_return = crate::FType::default();
+        let mut running_advantage = crate::FType::default();
         for i in (0..traj_length).rev() {
             let now_idx = (b, i);
             let reward = rewards.get(now_idx)?;
-            let not_done = crate::FType::from_f32(*not_dones.get(now_idx)? as i8 as f32);
+            let not_done = crate::f32_to_ftype(*not_dones.get(now_idx)? as i8 as f32);
             running_return = reward + reward_gamma * running_return * not_done;
             running_advantage = reward - values.get(now_idx)?
                 + reward_gamma
                     * not_done
-                    * (values.get((b, i + 1)).unwrap_or(&crate::FType::ZERO)
+                    * (values.get((b, i + 1)).unwrap_or(&crate::FType::default())
                         + gae_lambda * running_advantage);
 
             *returns.get_mut(now_idx).unwrap() = running_return;

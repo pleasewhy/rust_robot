@@ -35,7 +35,7 @@ impl<B: Backend> NormalMLPPolicy<B> {
 
         let max_seq_len = mean.shape().dims[1]; // (B, T, ac_dim)
         let ac_dim = mean.shape().dims[2]; // (B, T, ac_dim)
-
+        
         let logstd = self.logstd_linear.forward(self.one.clone());
         let action_mask = seq_mask
             .clone()

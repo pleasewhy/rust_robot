@@ -1,6 +1,5 @@
 #![allow(warnings)]
 #![warn(incomplete_features)]
-// #![feature(generic_const_exprs)]
 
 mod burn_utils;
 mod mujoco;
@@ -16,10 +15,30 @@ use rl_env::gym_humanoid_v4::HumanoidV4;
 use rl_env::inverted_pendulum_v4::InvertedPendulumV4;
 use rl_env::mobile_arm::MobileArm;
 
+#[cfg(not(feature = "use_f32"))]
 type FType = half::f16;
+
+#[cfg(not(feature = "use_f32"))]
+fn f32_to_ftype(v: f32) -> FType {
+    FType::from_f32(v)
+}
+#[cfg(not(feature = "use_f32"))]
+fn ftype_to_f32(v: FType) -> f32 {
+    v.into()
+}
+
+#[cfg(feature = "use_f32")]
+type FType = f32;
+
+#[cfg(feature = "use_f32")]
+fn f32_to_ftype(v: f32) -> FType {
+    v
+}
+
 fn main() {
     // 注意，env_logger 必须尽可能早的初始化
     env_logger::builder().filter_level(LevelFilter::Warn).init();
 
+    // ppo_run::train_network::<HumanoidV4>();
     ppo_run::train_network::<InvertedPendulumV4>();
 }

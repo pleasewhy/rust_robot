@@ -30,10 +30,10 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
         gae_gamma: 0.97,
         reward_lambda: 0.99,
         learning_rate: 1e-4,
-        entropy_coef: 0.0,
+        entropy_coef: 0.01,
         epsilon_clip: 0.1,
         update_freq: 10,
-        mini_batch_size: 500,
+        mini_batch_size: 50,
     };
 
     let config = TrainConfig {
@@ -43,12 +43,12 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
         ckpt_save_path: "./ckpt".to_string(),
         resume_from_ckpt_path: None,
         // resume_from_ckpt_path: Some(
-        //     "ckpt/ppo_MobileArm_04-23 18:53/iter600_mean_reward17.587719".to_string(),
+        //     "ckpt/ppo_HumanoidV4_05-12 23:45/iter1300_mean_reward4084".to_string(),
         // ),
         save_model_freq: 100,
-        grad_clip: Some(GradientClippingConfig::Norm(1.0)),
+        grad_clip: Some(GradientClippingConfig::Value(100.0)),
         env_config: EnvConfig {
-            n_env: 500,
+            n_env: 300,
             max_traj_length: 1000,
             truncate_strategy: TruncateStrategy::DonedEnvRatio(1.0),
             sample_thread_num: 6,
@@ -72,9 +72,8 @@ pub fn train_network<ENV: MujocoEnv + Send + 'static>() {
     // let device = MyDevice::Cpu;
     println!("a={}", Tensor::<MyBackend, 1>::zeros([1], &device));
     let mut actor_net =
-        NormalMLPPolicyConfig::new(action_dim, ob_dim, 2, 128).init::<Autodiff<MyBackend>>(&device);
-    let a = actor_net.valid();
-    let baseline_net = MLPCriticConfig::new(ob_dim, 2, 128).init::<Autodiff<MyBackend>>(&device);
+        NormalMLPPolicyConfig::new(action_dim, ob_dim, 3, 256).init::<Autodiff<MyBackend>>(&device);
+    let baseline_net = MLPCriticConfig::new(ob_dim, 3, 256).init::<Autodiff<MyBackend>>(&device);
     println!("actor_net={}", actor_net);
     println!("baseline_net={}", baseline_net);
     let mut runner =

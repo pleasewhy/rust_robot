@@ -52,6 +52,7 @@ impl<
                 actor_net,
                 actor_optimizer,
                 pg_config.learning_rate.into(),
+                Some("actor"),
             ),
             actor_loss.into_data().as_slice().unwrap()[0],
         );
@@ -77,6 +78,7 @@ impl<
                 baseline_net,
                 baseline_optimizer,
                 pg_config.learning_rate.into(),
+                Some("baseline"),
             ),
             baseline_loss.into_data().as_slice().unwrap()[0],
         );
@@ -100,7 +102,6 @@ impl<
         &mut self,
         mut actor_net: AM,
         mut baseline_net: BM,
-        logger: &mut HashMap<String, f32>,
         memory: &Memory<B>,
         actor_optimizer: &mut (impl Optimizer<AM, B> + Sized),
         baseline_optimizer: &mut (impl Optimizer<BM, B> + Sized),
@@ -131,8 +132,8 @@ impl<
             tensor2ndarray2(rewards).view(),
             tensor2ndarray2::<B, bool, Bool>(&not_dones).view(),
             seq_mask.clone(),
-            crate::FType::from_f32(pg_config.gae_gamma),
-            crate::FType::from_f32(pg_config.reward_lambda),
+            crate::f32_to_ftype(pg_config.gae_gamma),
+            crate::f32_to_ftype(pg_config.reward_lambda),
             &device,
         )?;
 

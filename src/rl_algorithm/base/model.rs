@@ -70,7 +70,6 @@ pub trait RlTrainAlgorithm<
         &mut self,
         actor_net: AM,
         baseline_net: BM,
-        logger: &mut HashMap<String, f32>,
         memory: &Memory<B>,
         actor_optimizer: &mut (impl Optimizer<AM, B> + Sized),
         baseline_optimizer: &mut (impl Optimizer<BM, B> + Sized),

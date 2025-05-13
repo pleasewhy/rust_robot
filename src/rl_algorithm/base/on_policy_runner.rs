@@ -28,6 +28,7 @@ use crate::rl_algorithm::base::rl_utils::{ndarray2tensor2, tensor2ndarray2};
 use super::{
     config::TrainConfig,
     model::{ActorModel, BaselineModel, RlTrainAlgorithm},
+    EpochLogger,
 };
 
 use super::memory::Memory;
@@ -43,7 +44,6 @@ struct CheckPoint<B: Backend, R: Record<B>> {
 pub struct OnPolicyRunner<E: MujocoEnv + Send + 'static, B: AutodiffBackend> {
     device: B::Device,
     backend: PhantomData<B>,
-    writer: SummaryWriter,
     env_name: String,
     algo_name: String,
     eval_env: E,
@@ -75,7 +75,7 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
             env_name,
             Utc::now().with_timezone(&Shanghai).format("%m-%d %H:%M")
         );
-        let writer = SummaryWriter::new(format!("./logdir/{}", &exp_name));
+        EpochLogger::init_writer(format!("./logdir/{}", &exp_name));
         let start = SystemTime::now();
         let env_sampler: env_sampler::BatchEnvSample<E> = env_sampler::BatchEnvSample::new(
             config.env_config.clone(),
@@ -92,7 +92,6 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
             algo_name: algo_name.to_string(),
             backend: PhantomData,
             action_dim,
-            writer,
             env_name: env_name.to_string(),
             env_sampler,
             config,
@@ -165,9 +164,9 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         (actor_net, baseline_net, actor_optimizer, baseline_optimizer) =
             self.resume_from_ckpt(actor_net, baseline_net, actor_optimizer, baseline_optimizer);
         let mut update_info: super::rl_utils::UpdateInfo;
-        let mut log_info = HashMap::<String, f32>::new();
+        // let mut log_info = HashMap::<String, f32>::new();
         for iter in 0..self.config.train_iter {
-            log_info.clear();
+            // log_info.clear();
             let mut start = SystemTime::now();
             let memory = self.sample_to_memory(&actor_net, iter);
 
@@ -180,14 +179,14 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
                 .sum()
                 .into_scalar()
                 .to_f32();
-            log_info.insert("mean_reward".to_string(), mean_reward);
+            EpochLogger::add_scalar(("train", "mean_reward"), mean_reward);
             let traj_length = memory.traj_length();
-            log_info.insert(
-                "step_num".to_string(),
+            EpochLogger::add_scalar(
+                ("train", "step_num"),
                 traj_length.clone().sum().into_scalar().to_f32(),
             );
-            log_info.insert(
-                "collect_time".to_string(),
+            EpochLogger::add_scalar(
+                ("train", "collect_time"),
                 start.elapsed().unwrap().as_millis() as f32,
             );
 
@@ -196,7 +195,6 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
                 .train(
                     actor_net,
                     baseline_net,
-                    &mut log_info,
                     &memory,
                     &mut actor_optimizer,
                     &mut baseline_optimizer,
@@ -216,38 +214,19 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
                 );
             }
 
-            log_info.insert(
-                "ppo_update_time".to_string(),
+            EpochLogger::add_scalar(
+                ("train", "ppo_update_time"),
                 start.elapsed().unwrap().as_millis() as f32,
             );
-            log_info.insert("actor_loss".to_string(), update_info.actor_loss.to_f32());
-            log_info.insert("critic_loss".to_string(), update_info.critic_loss.to_f32());
-            log_info.insert("mean_q_val".to_string(), update_info.mean_q_val.to_f32());
-            log_info.insert(
-                "actor_std".to_string(),
+            EpochLogger::add_scalar(("train", "actor_loss"), update_info.actor_loss.to_f32());
+            EpochLogger::add_scalar(("train", "critic_loss"), update_info.critic_loss.to_f32());
+            EpochLogger::add_scalar(("train", "mean_q_val"), update_info.mean_q_val.to_f32());
+            EpochLogger::add_scalar(
+                ("train", "actor_std"),
                 actor_net.std_mean().into_scalar().to_f32(),
             );
-            self.log(iter, &log_info);
+            EpochLogger::log(iter);
         }
-    }
-
-    fn write_scalar(&mut self, main_tag: &str, sub_tag: &str, scalar: f32, step: usize) {
-        let mut map = HashMap::<String, f32>::new();
-        map.insert(sub_tag.to_string(), scalar);
-        self.writer.add_scalars(main_tag, &map, step);
-    }
-
-    fn log(&mut self, step: usize, log_info: &HashMap<String, f32>) {
-        println!("************iter={}************", step);
-        for (tag, scalar) in log_info {
-            self.write_scalar(format!("humanoid/{}", &tag).as_str(), &tag, *scalar, step);
-            println!("{}={}", tag, scalar);
-        }
-        println!("************iter={}************", step);
-        println!();
-        println!();
-        let x = 1.0f32;
-        self.writer.flush();
     }
 
     fn save_ckpt<R1: Record<B>, R2: Record<B>, R3: Record<B>, R4: Record<B>>(
@@ -306,6 +285,8 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
                 &self.device,
             )
             .unwrap();
+        println!("actor_net={}", actor_net);
+        println!("baseline_net={}", baseline_net);
         let actor_opti_record = file_recorder
             .load(format!("{}/actor_opti", path).into(), &self.device)
             .unwrap();

@@ -73,6 +73,7 @@ impl<
                 actor_net,
                 actor_optimizer,
                 ppo_config.learning_rate.into(),
+                Some("actor"),
             ),
             actor_loss.into_data().as_slice().unwrap()[0],
         );
@@ -94,14 +95,15 @@ impl<
         let pred: Tensor<B, 2> =
             baseline_net.autodiff_forward(obs.clone(), traj_length, seq_mask.clone());
         // println!("pred={}", pred);
-        let baseline_loss = MseLoss.forward_no_reduction(pred, returns.clone());
-        let baseline_loss = burn_utils::mean_with_mask(baseline_loss, seq_mask.bool());
+        let baseline_loss =
+            burn_utils::avoid_overflow::mse_loss_with_mask(pred, returns, seq_mask.bool());
         return (
             rl_utils::update_parameters(
                 baseline_loss.clone(),
                 baseline_net,
                 baseline_optimizer,
                 ppo_config.learning_rate.into(),
+                Some("baseline"),
             ),
             baseline_loss.into_data().as_slice().unwrap()[0],
         );
@@ -125,7 +127,6 @@ impl<
         &mut self,
         mut actor_net: AM,
         mut baseline_net: BM,
-        logger: &mut HashMap<String, f32>,
         memory: &Memory<B>,
         actor_optimizer: &mut (impl Optimizer<AM, B> + Sized),
         baseline_optimizer: &mut (impl Optimizer<BM, B> + Sized),
@@ -158,8 +159,8 @@ impl<
             tensor2ndarray2(rewards).view(),
             not_done_arr.view(),
             seq_mask.clone(),
-            crate::FType::from_f32(ppo_config.gae_gamma),
-            crate::FType::from_f32(ppo_config.reward_lambda),
+            crate::f32_to_ftype(ppo_config.gae_gamma),
+            crate::f32_to_ftype(ppo_config.reward_lambda),
             &device,
         )?;
 
