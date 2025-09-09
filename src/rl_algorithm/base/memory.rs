@@ -7,7 +7,7 @@ use burn::{
 };
 use ndarray::{Array1, Array2, Array3};
 
-use crate::burn_utils::randperm;
+use crate::burn_utils::{self, randperm};
 
 use super::rl_utils::{self, ndarray2tensor1, ndarray2tensor2, tensor2ndarray2};
 

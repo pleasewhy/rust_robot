@@ -9,11 +9,11 @@ use video_rs::ffmpeg::decoder::new;
 
 #[derive(Debug, Clone)]
 pub struct Categorical<B: Backend> {
-    prob: Tensor<B, 4>,         // (B, seq_length, ac_dim, categorical_num)
-    scale: Tensor<B, 1>,        // 标准差
-    mask: Option<Tensor<B, 3>>, // mask (B, seq_length, action_dim)
-    range_start: f32,
-    interval: f32,
+    pub prob: Tensor<B, 4>,         // (B, seq_length, ac_dim, categorical_num)
+    pub scale: Tensor<B, 1>,        // 标准差
+    pub mask: Option<Tensor<B, 3>>, // mask (B, seq_length, action_dim)
+    pub range_start: f32,
+    pub interval: f32,
 }
 
 impl<B: Backend> Categorical<B> {
@@ -36,13 +36,13 @@ impl<B: Backend> Categorical<B> {
 
     pub fn sample(&self) -> Tensor<B, 3> {
         let device = &self.prob.device();
-        let x = Tensor::<B, 4>::random(
+        let random = Tensor::<B, 4>::random(
             self.prob.shape(),
             burn::tensor::Distribution::Uniform(0.0, 1.0),
             device,
         )
         .mul(self.prob.clone());
-        let idx = x.argmax(3).flatten(2, 3).float();
+        let idx = random.argmax(3).flatten(2, 3).float();
         let mean = idx * self.interval + self.range_start;
         let sample = mean.clone();
         let standard_normal = Tensor::<B, 3>::random(
@@ -51,8 +51,8 @@ impl<B: Backend> Categorical<B> {
             device,
         );
 
-        // println!("self.scale={}", self.scale);
-        let sample = mean * self.scale.clone().expand(standard_normal.shape());
+        let sample =
+            mean.no_grad() + standard_normal.clone() * self.scale.clone().expand(standard_normal.shape());
         if let Some(mask) = &self.mask {
             return sample.clone().mul(mask.clone());
         }
@@ -61,15 +61,17 @@ impl<B: Backend> Categorical<B> {
 
     // value: (B, seq_len, ac_dim)
     pub fn log_prob(&self, value: Tensor<B, 3>) -> Tensor<B, 3> {
-        let idx = (value.unsqueeze_dim::<4>(3) - self.range_start) / self.interval;
-        // println!("idx={}", idx.clone().int());
-        // println!("prob={}", self.prob.clone().int());
+        let idx = (value.clone().unsqueeze_dim::<4>(3) - self.range_start) / self.interval;
+
         let prob = self.prob.clone().gather(3, idx.int());
-        let logprob = prob.add_scalar(1.0).log().flatten(2, 3);
+        println!("prob={} has_nan={}", prob, prob.clone().is_nan().any());
+        let logprob = prob.add_scalar(2.0).log().flatten(2, 3);
+        println!("logprob={} has_nan={}", logprob, logprob.clone().is_nan().any());
+
         if let Some(mask) = &self.mask {
             return logprob * mask.clone();
         }
-        return logprob;
+        return logprob - self.scale.clone().log().expand(value.shape());
     }
     pub fn independent_log_prob(&self, value: Tensor<B, 3>) -> Tensor<B, 2> {
         let x = self.log_prob(value).sum_dim(2).flatten::<2>(1, 2);

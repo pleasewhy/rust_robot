@@ -28,6 +28,13 @@ lazy_static! {
     }));
 }
 
+pub enum EpochLoggerAggMode {
+    Sum,
+    Mean,
+    Max,
+    Min,
+    Replace,
+}
 impl EpochLogger {
     pub fn init_writer(logdir: String) {
         let mut this = MyLogger.lock().unwrap();
@@ -40,6 +47,29 @@ impl EpochLogger {
             main_tag_sub_tag.0.to_string(),
             main_tag_sub_tag.1.to_string(),
         );
+        this.log_info.insert(main_tag_sub_tag, val);
+    }
+
+    pub fn add_scalar_agg(
+        main_tag_sub_tag: (&str, &str),
+        mut val: f32,
+        agg_mod: EpochLoggerAggMode,
+    ) {
+        let mut this = MyLogger.lock().unwrap();
+        let main_tag_sub_tag = (
+            main_tag_sub_tag.0.to_string(),
+            main_tag_sub_tag.1.to_string(),
+        );
+        if let Some(old_val) = this.log_info.get(&main_tag_sub_tag) {
+            val = match agg_mod {
+                EpochLoggerAggMode::Sum => val + old_val,
+                EpochLoggerAggMode::Mean => (val + old_val) / 2.0,
+                EpochLoggerAggMode::Max => val.max(*old_val),
+                EpochLoggerAggMode::Min => val.min(*old_val),
+                EpochLoggerAggMode::Replace => *old_val,
+            }
+        }
+
         this.log_info.insert(main_tag_sub_tag, val);
     }
 

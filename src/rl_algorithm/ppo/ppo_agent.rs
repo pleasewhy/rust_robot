@@ -5,6 +5,7 @@ use crate::rl_algorithm::base::rl_utils::UpdateInfo;
 use crate::rl_algorithm::base::rl_utils::{self, tensor2ndarray2};
 
 use crate::rl_algorithm::base::model::{ActorModel, BaselineModel, RlTrainAlgorithm};
+use crate::rl_algorithm::base::{EpochLogger, EpochLoggerAggMode};
 use burn::module::AutodiffModule;
 use burn::nn::loss::{MseLoss, Reduction};
 use burn::optim::Optimizer;
@@ -13,10 +14,12 @@ use burn::tensor::backend::AutodiffBackend;
 use burn::tensor::{cast::ToElement, Bool, Int, Tensor, TensorData};
 use log::{info, trace};
 use ndarray_rand::rand::seq;
+use std::alloc::System;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::process;
+use std::time::SystemTime;
 
 pub struct PPO<B: AutodiffBackend, AM: ActorModel<B>, BM: BaselineModel<B>> {
     backend: PhantomData<B>,
@@ -43,31 +46,35 @@ impl<
         actor_optimizer: &mut (impl Optimizer<AM, B> + Sized),
         config: &TrainConfig,
     ) -> (AM, crate::FType) {
+        let start = SystemTime::now();
         let ppo_config = &config.ppo_train_config;
         let normal = actor_net.autodiff_forward(obs, traj_length.clone(), seq_mask.clone());
         let logprobs: Tensor<B, 2> = normal.independent_log_prob(action);
-        trace!("logprobs={}", logprobs);
-        trace!("old_logprobs={}", old_logprobs);
+
+        // println!("logprobs={}", logprobs);
+        // println!("old_logprobs={}", old_logprobs);
         let ratio = (logprobs - old_logprobs).exp();
-        trace!("ratio={}", ratio);
+
+        // println!("ratio={}", ratio);
+
         let clipped_ratio = ratio
             .clone()
             .clamp(1.0 - ppo_config.epsilon_clip, 1.0 + ppo_config.epsilon_clip);
-        trace!("clipped_ratio={}", clipped_ratio);
 
         let now_advantage = ratio * advantages.clone();
         let clip_advantage = clipped_ratio * advantages.clone();
 
-        trace!("advantages={}", advantages);
-        trace!("now_advantage={}", now_advantage);
-        trace!("clip_advantage={}", clip_advantage);
+        // println!("advantages={}", advantages);
+        // println!("now_advantage={}", now_advantage);
+        // println!("clip_advantage={}", clip_advantage);
 
         let advantage_loss = -now_advantage.min_pair(clip_advantage).mul(seq_mask.clone());
+        // println!("advantage_loss={}", advantage_loss);
+        let actor_loss =
+            burn_utils::mean_with_mask(advantage_loss, seq_mask.bool(), "update_actor")
+                - normal.entropy().mean() * ppo_config.entropy_coef;
 
-        let actor_loss = burn_utils::mean_with_mask(advantage_loss, seq_mask.bool())
-            - normal.entropy().mean() * ppo_config.entropy_coef;
-
-        return (
+        let res = (
             rl_utils::update_parameters(
                 actor_loss.clone(),
                 actor_net,
@@ -77,6 +84,12 @@ impl<
             ),
             actor_loss.into_data().as_slice().unwrap()[0],
         );
+        EpochLogger::add_scalar_agg(
+            ("cost_trace", "update_actor"),
+            start.elapsed().unwrap().as_millis() as f32,
+            EpochLoggerAggMode::Sum,
+        );
+        return res;
     }
 
     pub fn update_baseline(
@@ -90,6 +103,8 @@ impl<
         baseline_optimizer: &mut (impl Optimizer<BM, B> + Sized),
         config: &TrainConfig,
     ) -> (BM, crate::FType) {
+        let start = SystemTime::now();
+
         let ppo_config = &config.ppo_train_config;
 
         let pred: Tensor<B, 2> =
@@ -97,7 +112,7 @@ impl<
         // println!("pred={}", pred);
         let baseline_loss =
             burn_utils::avoid_overflow::mse_loss_with_mask(pred, returns, seq_mask.bool());
-        return (
+        let res = (
             rl_utils::update_parameters(
                 baseline_loss.clone(),
                 baseline_net,
@@ -107,6 +122,12 @@ impl<
             ),
             baseline_loss.into_data().as_slice().unwrap()[0],
         );
+        EpochLogger::add_scalar_agg(
+            ("cost_trace", "update_baseline"),
+            start.elapsed().unwrap().as_millis() as f32,
+            EpochLoggerAggMode::Sum,
+        );
+        return res;
     }
 }
 
@@ -153,7 +174,8 @@ impl<
             seq_mask.clone().inner(),
         );
         trace!("old_values={}", old_values);
-        let not_done_arr = tensor2ndarray2::<B, bool, Bool>(&not_dones);
+        let not_done_arr = tensor2ndarray2::<B, u32, Bool>(&not_dones);
+        let not_done_arr = not_done_arr.mapv(|x| x > 0);
         let old_gae_output = rl_utils::get_gae::<B>(
             tensor2ndarray2(&old_values).view(),
             tensor2ndarray2(rewards).view(),
@@ -176,19 +198,14 @@ impl<
         let advantages = old_gae_output.advantages;
         let expected_values = old_gae_output.expected_returns;
         let mut update_info = UpdateInfo::new();
-        println!("expected_values={}", expected_values);
-        println!(
-            "expected_values={:?}",
-            burn_utils::mean_with_mask(expected_values.clone(), seq_mask.clone().bool())
-                .into_data()
-                .as_slice::<crate::FType>()
-                .unwrap()[0]
-        );
-        update_info.mean_q_val =
-            burn_utils::mean_with_mask(expected_values.clone(), seq_mask.clone().bool())
-                .into_data()
-                .as_slice()
-                .unwrap()[0];
+        update_info.mean_q_val = burn_utils::mean_with_mask(
+            expected_values.clone(),
+            seq_mask.clone().bool(),
+            "cal_mean_q_val",
+        )
+        .into_data()
+        .as_slice()
+        .unwrap()[0];
         let mut actor_loss: crate::FType;
         let mut baseline_loss: crate::FType;
         let mini_batch_size = ppo_config.mini_batch_size.min(memory.len());

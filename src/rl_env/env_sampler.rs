@@ -3,6 +3,7 @@ use std::{
     time::SystemTime,
 };
 
+use crate::rl_algorithm::base::{EpochLogger, EpochLoggerAggMode};
 use ndarray::{s, Array1, Array2, Array3};
 
 use super::config::EnvConfig;
@@ -81,6 +82,7 @@ impl<E: MujocoEnv + Send + 'static> BatchEnvSample<E> {
     where
         F: Fn(Array2<f64>) -> Array2<f64>,
     {
+        let mut start = SystemTime::now();
         let mut obs_vec = Array2::zeros((self.envs.len(), obs_dim));
         for (idx, env) in self.envs.iter().enumerate() {
             let my_env = env.lock().unwrap();
@@ -93,7 +95,18 @@ impl<E: MujocoEnv + Send + 'static> BatchEnvSample<E> {
                 .unwrap()
                 .copy_from_slice(my_env.get_obs().as_slice());
         }
+        EpochLogger::add_scalar_agg(
+            ("env_sampler", "get_action_construct_obs_cost"),
+            start.elapsed().unwrap().as_millis() as f32,
+            EpochLoggerAggMode::Sum,
+        );
+        let start = SystemTime::now();
         let actions = policy(obs_vec);
+        EpochLogger::add_scalar_agg(
+            ("env_sampler", "get_action_policy_net_forward_cost"),
+            start.elapsed().unwrap().as_millis() as f32,
+            EpochLoggerAggMode::Sum,
+        );
         return actions;
     }
 
@@ -104,11 +117,8 @@ impl<E: MujocoEnv + Send + 'static> BatchEnvSample<E> {
         let (tx, rx) = channel();
         for _ in 0..self.thread_num {
             let tx = tx.clone();
-            // let my_id = core_ids[i];
             let my_step_task_deque = step_task_deque.clone();
             let handle = self.pool.execute(move || {
-                // let res = core_affinity::set_for_current(my_id);
-                // println!("my_id={:?} init={}", my_id, res);
                 while !my_step_task_deque.is_empty() {
                     let steal_task = my_step_task_deque.steal();
                     if !steal_task.is_success() {

@@ -11,9 +11,8 @@ image = "0.25.5"
 ndarray = "0.16.1"
 ndarray-rand = "0.15.0"
 video-rs = { version = "0.10", features = ["ndarray"] }
-burn = { version = "0.16.1", features = ["train", "ndarray", "tch"] }
+burn = { version = "0.18", features = ["train", "ndarray", "wgpu"] }
 half = "2.6.0"
-burn-cubecl = { version = "0.17" }
 rand_distr = "0.5.1"
 rand = "0.9.0"
 core_affinity = "0.8.3"
@@ -26,5 +25,5 @@ chrono = "0.4.40"
 chrono-tz = "0.10.3"
 
 [features]
-# default = ["use_f32"]
+default = ["use_f32"]
 use_f32 = []

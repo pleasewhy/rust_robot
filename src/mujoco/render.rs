@@ -77,15 +77,21 @@ impl Render {
         }
     }
 
-    pub fn render(&mut self) -> (Vec<u8>, Vec<f32>) {
+    pub fn render(&mut self, render_stamp: Option<String>) -> (Vec<u8>, Vec<f32>) {
         let mut rgb = Vec::new();
         let mut depth = Vec::new();
         let w = self.viewport.width;
         let h = self.viewport.height;
         rgb.resize((3 * w * h) as usize, 0);
         depth.resize((w * h) as usize, 0.0);
-        let mut stamp = format!("{:.2}", 1.0).into_bytes();
-        stamp.resize(50, 0);
+
+        let stamp = if let Some(render_stamp) = render_stamp {
+            let mut stamp = render_stamp.into_bytes();
+            stamp.resize(50, 0);
+            stamp
+        } else {
+            vec![0; 50]
+        };
         unsafe {
             ffi::mjr_render(self.viewport, &mut self.scene, &mut self.render_context);
             ffi::mjr_overlay(

@@ -86,7 +86,7 @@ impl MujocoEnv for InvertedPendulumV4 {
         if self.is_render {
             let render = self.render.as_mut().unwrap();
             render.update_scene(&self.model, &mut self.data);
-            let (image, _) = render.render();
+            let (image, _) = render.render(None);
             let image = Array3::from_shape_vec((render.get_height(), render.get_width(), 3), image)
                 .unwrap();
             image_obs = Some(image);

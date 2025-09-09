@@ -14,6 +14,8 @@ use log::{error, trace, warn};
 use ndarray::{Array1, Array2, Array3, ArrayView2, AssignElem};
 
 struct GradMeanVisitor<'a, B: AutodiffBackend> {
+    weight_sum: f32,
+    weight_cnt: f32,
     mean_sum: f32,
     mean_cnt: f32,
     gradient_params: &'a GradientsParams,
@@ -30,12 +32,14 @@ impl<B: AutodiffBackend> ModuleVisitor<B> for GradMeanVisitor<'_, B>
 where
     B: Backend,
 {
-    fn visit_float<const D: usize>(&mut self, id: ParamId, _tensor: &Tensor<B, D>) {
+    fn visit_float<const D: usize>(&mut self, id: ParamId, tensor: &Tensor<B, D>) {
+        self.weight_sum += tensor.clone().mean().into_scalar().to_f32();
+        self.weight_cnt += 1.0;
         if let Some(grad) = self.gradient_params.get::<B::InnerBackend, D>(id) {
             self.mean_sum += grad.clone().mean().into_scalar().to_f32();
             self.mean_cnt += 1.0;
             trace!("grad={}", grad);
-            if grad.is_nan().any().into_scalar() {
+            if grad.is_nan().any().into_scalar().to_bool() {
                 error!("grad has nan");
                 std::process::exit(-1);
             }
@@ -60,41 +64,23 @@ pub(crate) fn update_parameters<B: AutodiffBackend, M: AutodiffModule<B>>(
         let mut visitor: GradMeanVisitor<'_, B> = GradMeanVisitor {
             mean_sum: 0.0,
             mean_cnt: 0.0,
+            weight_sum: 0.0,
+            weight_cnt: 0.0,
             gradient_params: &gradient_params,
             phantom: PhantomData,
         };
         module.visit(&mut visitor);
         super::EpochLogger::add_scalar(
-            ("grad", module_name),
+            (module_name, "grad_mean"),
+            crate::ftype_to_f32(visitor.mean_grad()),
+        );
+        super::EpochLogger::add_scalar(
+            (module_name, "net_weight_mean"),
             crate::ftype_to_f32(visitor.mean_grad()),
         );
     }
 
     optimizer.step(learning_rate, module, gradient_params)
-}
-
-fn mean_with_mask<B: Backend>(tensor: Tensor<B, 2>, mask: Tensor<B, 2>) -> f32 {
-    let num_elements = mask.clone().sum().into_scalar().to_f32();
-    let mean = (tensor.clone() * mask.clone())
-        .div_scalar(num_elements)
-        .sum();
-    return mean.into_scalar().to_f32();
-}
-
-fn std_with_mask<B: Backend>(tensor: Tensor<B, 2>, mean: f32, mask: Tensor<B, 2>) -> Tensor<B, 1> {
-    let num_elements = mask.clone().sum().into_scalar().to_f32();
-    let std = ((tensor.clone() - mean).powi_scalar(2) * mask.clone())
-        .div_scalar(num_elements - 1.0)
-        .sum()
-        .sqrt();
-
-    return std;
-}
-pub fn normalize_with_mask<B: Backend>(tensor: Tensor<B, 2>, mask: Tensor<B, 2>) -> Tensor<B, 2> {
-    let mean = mean_with_mask(tensor.clone(), mask.clone());
-    let std = std_with_mask(tensor.clone(), mean, mask.clone());
-
-    return (tensor.clone() - mean).mul(mask) / (std + 1e-6).into_scalar();
 }
 
 #[derive(Debug)]
@@ -156,8 +142,11 @@ pub(crate) fn get_gae<B: Backend>(
     // println!("advantages: {:?}", advantages);
     let res = Some(GAEOutput {
         expected_returns: ndarray2tensor2(returns, device),
-        // advantages: normalize_with_mask(ndarray2tensor2(advantages, device), seq_mask),
-        advantages: ndarray2tensor2(advantages, device),
+        advantages: crate::burn_utils::normalize_with_mask(
+            ndarray2tensor2(advantages, device),
+            seq_mask.bool(),
+        ),
+        // advantages: ndarray2tensor2(advantages, device),
     });
 
     return res;
@@ -242,20 +231,20 @@ mod tests {
     use burn::backend::ndarray::{NdArray, NdArrayDevice};
     use burn::prelude::*;
     use burn::tensor::TensorData;
-    #[test]
-    fn test_std_with_mask() {
-        let device = NdArrayDevice::Cpu;
-        let tensor: Tensor<NdArray, 2> =
-            Tensor::from_data(TensorData::from([[1.0, 2.0], [3.0, 4.0]]), &device);
-        let mask: Tensor<NdArray, 2> =
-            Tensor::from_data(TensorData::from([[1.0, 0.0], [1.0, 1.0]]), &device);
-        let num_elements: f32 = mask.clone().sum().into_scalar().to_f32();
+    // #[test]
+    // fn test_std_with_mask() {
+    //     let device = NdArrayDevice::Cpu;
+    //     let tensor: Tensor<NdArray, 2> =
+    //         Tensor::from_data(TensorData::from([[1.0, 2.0], [3.0, 4.0]]), &device);
+    //     let mask: Tensor<NdArray, 2> =
+    //         Tensor::from_data(TensorData::from([[1.0, 0.0], [1.0, 1.0]]), &device);
+    //     let num_elements: f32 = mask.clone().sum().into_scalar().to_f32();
 
-        let mean = mean_with_mask(tensor.clone(), mask.clone());
-        let std: Tensor<NdArray, 1> = std_with_mask::<NdArray>(tensor.clone(), mean, mask.clone());
-        // println!("num_elements: {:?}", num_elements);
-        // println!("mean: {:?}", mean);
-        // println!("std: {:?}", std);
-        assert!((std.into_scalar().to_f32() - 1.5275252) < 1e-6);
-    }
+    //     let mean = mean_with_mask(tensor.clone(), mask.clone());
+    //     let std: Tensor<NdArray, 1> = std_with_mask::<NdArray>(tensor.clone(), mean, mask.clone());
+    //     // println!("num_elements: {:?}", num_elements);
+    //     // println!("mean: {:?}", mean);
+    //     // println!("std: {:?}", std);
+    //     assert!((std.into_scalar().to_f32() - 1.5275252) < 1e-6);
+    // }
 }

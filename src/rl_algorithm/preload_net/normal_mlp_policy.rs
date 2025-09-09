@@ -3,6 +3,7 @@ use crate::burn_utils::distribution::Distribution;
 use crate::burn_utils::{build_mlp, Sequence};
 use crate::rl_algorithm::base::model::ActorModel;
 use crate::rl_algorithm::base::rl_utils::{ndarray2tensor1, tensor2ndarray1, tensor2ndarray2};
+use crate::rl_algorithm::base::{EpochLogger, EpochLoggerAggMode};
 use burn::module::AutodiffModule;
 use burn::nn::Tanh;
 use burn::tensor::backend::AutodiffBackend;
@@ -35,17 +36,22 @@ impl<B: Backend> NormalMLPPolicy<B> {
 
         let max_seq_len = mean.shape().dims[1]; // (B, T, ac_dim)
         let ac_dim = mean.shape().dims[2]; // (B, T, ac_dim)
-        
-        let logstd = self.logstd_linear.forward(self.one.clone());
+
+        let logstd = self.logstd_linear.weight.val().flatten(0, 1);
         let action_mask = seq_mask
             .clone()
             .repeat_dim(1, ac_dim)
             .reshape([batch_size, ac_dim, max_seq_len])
             .swap_dims(1, 2);
-        if mean.is_nan().any().into_scalar() {
+        if mean.clone().is_nan().any().into_scalar().to_bool() {
             println!("mean has nan");
             std::process::exit(-1);
         }
+        EpochLogger::add_scalar_agg(
+            ("trace", "action_mean"),
+            mean.clone().mean().into_scalar().to_f32(),
+            EpochLoggerAggMode::Mean,
+        );
         return Distribution::Normal(Normal::new(
             mean,
             logstd.exp().powi_scalar(2),
@@ -53,6 +59,7 @@ impl<B: Backend> NormalMLPPolicy<B> {
         ));
     }
 }
+
 impl<B: AutodiffBackend> ActorModel<B> for NormalMLPPolicy<B> {
     fn autodiff_forward(
         &self,
@@ -63,7 +70,7 @@ impl<B: AutodiffBackend> ActorModel<B> for NormalMLPPolicy<B> {
         return self.forward(input, traj_length, seq_mask);
     }
     fn std_mean(&self) -> Tensor<B, 1> {
-        let logstd = self.logstd_linear.forward(self.one.clone());
+        let logstd = self.logstd_linear.weight.val().flatten::<1>(0, 1);
         return logstd.mean();
     }
 

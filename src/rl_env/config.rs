@@ -25,6 +25,7 @@ pub struct EnvConfig {
     pub use_init_state_ratio: f64,
     pub truncate_strategy: TruncateStrategy,
     pub sample_thread_num: usize,
+    pub skip_steps: usize,
 }
 
 impl Default for EnvConfig {
@@ -36,6 +37,7 @@ impl Default for EnvConfig {
             use_init_state_ratio: 0.3,
             truncate_strategy: TruncateStrategy::DonedEnvRatio(1.0),
             sample_thread_num: 4,
+            skip_steps: 1,
         }
     }
 }

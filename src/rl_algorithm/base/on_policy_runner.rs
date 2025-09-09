@@ -56,10 +56,10 @@ pub struct OnPolicyRunner<E: MujocoEnv + Send + 'static, B: AutodiffBackend> {
 
 fn batch_traj_to_memory<B: Backend>(batch_traj: BatchTrajInfo, device: &B::Device) -> Memory<B> {
     return Memory::new(
-        batch_traj.obs.mapv(|x| crate::FType::from_f32(x)),
+        batch_traj.obs.mapv(|x| crate::f32_to_ftype(x)),
         Array3::zeros((1, 1, 1)),
-        batch_traj.action.mapv(|x| crate::FType::from_f32(x)),
-        batch_traj.reward.mapv(|x| crate::FType::from_f32(x)),
+        batch_traj.action.mapv(|x| crate::f32_to_ftype(x)),
+        batch_traj.reward.mapv(|x| crate::f32_to_ftype(x)),
         batch_traj.terminal.map(|x| *x > 0u8),
         batch_traj.traj_length,
         device,
@@ -101,40 +101,48 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         }
     }
 
+    pub fn get_action<AM: ActorModel<B> + Display>(
+        obs: Array2<f64>,
+        actor: AM,
+        device: B::Device,
+        is_eval: bool,
+    ) -> Array2<f64> {
+        let input = ndarray2tensor2(obs, &device);
+        let input = input.unsqueeze_dim::<3>(1); // (batch_size, seq_length, obs_dim), seq_length=1
+        let batch_size = input.shape().dims[0];
+        let obs_dim = input.shape().dims[2];
+        let traj_length = Tensor::ones([batch_size], &device);
+        let seq_mask = Tensor::<B::InnerBackend, 2>::ones([batch_size, 1], &device);
+        // let mask = mask
+        //     .repeat_dim(1, self.action_dim)
+        //     .reshape([batch_size, self.action_dim, 1])
+        //     .swap_dims(1, 2);
+
+        let action_dis = actor.clone().eval_forward(input, traj_length, seq_mask);
+        let action = if is_eval {
+            action_dis.mean().squeeze::<2>(1)
+        } else {
+            action_dis.sample().squeeze::<2>(1)
+        };
+
+        let action = tensor2ndarray2::<B::InnerBackend, crate::FType, Float>(&action);
+        return action.map(|x| x.to_f64());
+    }
     pub fn sample_to_memory<AM: ActorModel<B> + Display>(
         &mut self,
-        actor: &AM,
+        actor: AM,
         iter: usize,
     ) -> Memory<B> {
-        let policy = |obs: Array2<f64>| {
-            // obs:(seq_length, obs_dim)
-            let input = ndarray2tensor2(obs, &self.device);
-            let input = input.unsqueeze_dim::<3>(1); // (batch_size, seq_length, obs_dim), seq_length=1
-            let batch_size = input.shape().dims[0];
-            let obs_dim = input.shape().dims[2];
-            let traj_length = Tensor::ones([batch_size], &self.device);
-            let seq_mask = Tensor::<B::InnerBackend, 2>::ones([batch_size, 1], &self.device);
-            // let mask = mask
-            //     .repeat_dim(1, self.action_dim)
-            //     .reshape([batch_size, self.action_dim, 1])
-            //     .swap_dims(1, 2);
-
-            let action = actor
-                .clone()
-                .eval_forward(input, traj_length, seq_mask)
-                .sample()
-                .squeeze::<2>(1);
-            let action = tensor2ndarray2::<B::InnerBackend, crate::FType, Float>(&action);
-            return action.map(|x| x.to_f64());
-        };
+        let policy =
+            |obs: Array2<f64>| Self::get_action(obs, actor.clone(), self.device.clone(), false);
         let trajs = self.env_sampler.sample_n_trajectories(&policy);
-        if iter % self.config.video_log_freq == 0 {
+        if iter > 0 && iter % self.config.video_log_freq == 0 {
             println!("iter={} video log", iter);
             let start = SystemTime::now();
             self.eval_env.run_policy(
                 &format!("{}_{}_iter{}", self.algo_name, self.env_name, iter),
                 self.config.env_config.max_traj_length,
-                &policy,
+                &|obs: Array2<f64>| Self::get_action(obs, actor.clone(), self.device.clone(), true),
             );
             println!("eval_env run_policy time={:?}", start.elapsed().unwrap());
         }
@@ -166,12 +174,10 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
         let mut update_info: super::rl_utils::UpdateInfo;
         // let mut log_info = HashMap::<String, f32>::new();
         for iter in 0..self.config.train_iter {
-            // log_info.clear();
+            println!("actor_net.std_mean()={}", actor_net.std_mean());
             let mut start = SystemTime::now();
-            let memory = self.sample_to_memory(&actor_net, iter);
+            let memory = self.sample_to_memory(actor_net.clone(), iter);
 
-            // println!("memory.reward.shape={:?}", memory.reward().shape());
-            // println!("memory.reward={}", memory.reward());
             let mean_reward = memory
                 .reward()
                 .clone()
@@ -242,7 +248,8 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
             "{}/iter{}_mean_reward{}",
             self.exp_base_path, iter, mean_reward
         );
-        let file_recorder = DefaultFileRecorder::<FullPrecisionSettings>::new();
+
+        let file_recorder = DefaultFileRecorder::<crate::MyPrecisionSettings>::new();
 
         file_recorder
             .record(actor_net_record, format!("{}/actor_net", path).into())
@@ -274,7 +281,7 @@ impl<E: MujocoEnv + Send + 'static, B: AutodiffBackend> OnPolicyRunner<E, B> {
             return (actor_net, baseline_net, actor_optimizer, baseline_optimizer);
         }
         let path = self.config.resume_from_ckpt_path.as_ref().unwrap().clone();
-        let file_recorder = DefaultFileRecorder::<FullPrecisionSettings>::new();
+        let file_recorder = DefaultFileRecorder::<crate::MyPrecisionSettings>::new();
         actor_net = actor_net
             .load_file(format!("{}/actor_net", path), &file_recorder, &self.device)
             .unwrap();

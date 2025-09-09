@@ -4,6 +4,7 @@ pub mod categorical;
 pub mod normal;
 // pub use normal::*;
 
+#[derive(Debug)]
 pub enum Distribution<B: Backend> {
     Normal(normal::Normal<B>),
     Categorical(categorical::Categorical<B>),
@@ -33,6 +34,12 @@ impl<B: Backend> Distribution<B> {
         match self {
             Distribution::Normal(normal) => normal.entropy(),
             Distribution::Categorical(categorical) => categorical.entropy(),
+        }
+    }
+    pub fn mean(&self) -> Tensor<B, 3> {
+        match self {
+            Distribution::Normal(normal) => normal.loc.clone(),
+            Distribution::Categorical(categorical) => categorical.mask.as_ref().unwrap().clone(),
         }
     }
 }

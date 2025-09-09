@@ -7,9 +7,9 @@ use std::{marker::PhantomData, time::SystemTime};
 
 #[derive(Debug, Clone)]
 pub struct Normal<B: Backend, const D: usize = 3> {
-    loc: Tensor<B, D>,          // 均值
-    scale: Tensor<B, 1>,        // 标准差
-    mask: Option<Tensor<B, D>>, // mask
+    pub loc: Tensor<B, D>,          // 均值
+    pub scale: Tensor<B, 1>,        // 标准差
+    pub mask: Option<Tensor<B, D>>, // mask
 }
 
 impl<B: Backend, const D: usize> Normal<B, D> {
@@ -19,10 +19,10 @@ impl<B: Backend, const D: usize> Normal<B, D> {
 
     pub fn sample(&self) -> Tensor<B, D> {
         let rng = rand::rng();
-        let iter = rng.sample_iter::<f64, StandardNormal>(StandardNormal);
+        let iter = rng.sample_iter::<f32, StandardNormal>(StandardNormal);
         let vec = iter
             .take(self.loc.shape().num_elements())
-            .collect::<Vec<f64>>();
+            .collect::<Vec<f32>>();
         let shape = [vec.len(); 1];
         let standard_normal_rand =
             Tensor::<B, 1>::from_data(TensorData::new(vec, shape), &self.loc.device());
